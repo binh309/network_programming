@@ -1,10 +1,9 @@
 #ifndef SEE_BALANCE_H
 #define SEE_BALANCE_H
 
-#include <stdint.h>
-#include "../network/protocol.h"
+#include "../network/packet.h"
+#include "../core/session_manager.h"
 
-// Function declarations
-void handle_see_balance_request(int client_fd);
+void handle_see_balance_request(int client_socket, const packet_t* request, session_t* session);
 
 #endif

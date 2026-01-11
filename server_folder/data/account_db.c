@@ -1,97 +1,106 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+#include <stdbool.h>
 #include "account_db.h"
+#include "../model/error.h"
 
-static const char* DB_PATH = "server_folder/data/accounts.txt";
+#define MAX_ACCOUNTS 100
 
-// Parse a line from accounts.txt: user_id,username,password,balance
-static account_t* parse_account_line(const char* line) {
-    account_t* acc = malloc(sizeof(account_t));
-    if (!acc) return NULL;
+// In-memory database
+static account_t accounts[MAX_ACCOUNTS];
+static int num_accounts = 0;
+static pthread_mutex_t db_mutex;
+static const char* DB_PATH = "data/accounts.txt";
 
-    // Buffer for parsing
-    char line_copy[256];
-    strncpy(line_copy, line, 255);
-    line_copy[255] = '\0';
-
-    // Parse CSV: id,username,password,balance
-    char* saveptr;
-    char* token = strtok_r(line_copy, ",", &saveptr);
-    if (!token) {
-        free(acc);
-        return NULL;
-    }
-
-    acc->user_id = atoi(token);
-
-    token = strtok_r(NULL, ",", &saveptr);
-    if (!token) {
-        free(acc);
-        return NULL;
-    }
-    strncpy(acc->username, token, 31);
-    acc->username[31] = '\0';
-
-    token = strtok_r(NULL, ",", &saveptr);
-    if (!token) {
-        free(acc);
-        return NULL;
-    }
-    strncpy(acc->password, token, 31);
-    acc->password[31] = '\0';
-
-    token = strtok_r(NULL, ",", &saveptr);
-    if (!token) {
-        free(acc);
-        return NULL;
-    }
-    acc->balance = atof(token);
-
-    acc->found = 1;
-    return acc;
+// Simple password hashing (XOR with a key)
+static void hash_password(const char* password, char* hashed_password) {
+    // Use plaintext to match accounts.txt and avoid binary issues in text file
+    strncpy(hashed_password, password, 31);
+    hashed_password[31] = '\0';
 }
 
-// Lookup account by username and password
-account_t* account_db_lookup(const char* username, const char* password) {
-    if (!username || !password) {
-        return NULL;
+// Function to write the entire in-memory database to the file
+static bool persist_db() {
+    FILE* fp = fopen(DB_PATH, "w");
+    if (!fp) {
+        fprintf(stderr, "[DB] Error opening accounts file for writing: %s\n", DB_PATH);
+        return false;
     }
 
-    FILE* fp = fopen(DB_PATH, "r");
+    for (int i = 0; i < num_accounts; ++i) {
+        fprintf(fp, "%u,%s,%s,%.2f\n",
+                accounts[i].user_id,
+                accounts[i].username,
+                accounts[i].password,
+                accounts[i].balance);
+    }
+
+    fclose(fp);
+    return true;
+}
+
+// Parse a line from accounts.txt: user_id,username,password,balance
+static bool parse_account_line(const char* line) {
+    if (num_accounts >= MAX_ACCOUNTS) {
+        fprintf(stderr, "[DB] Max accounts reached, cannot load more.\n");
+        return false;
+    }
+
+    account_t* acc = &accounts[num_accounts];
+    
+    char line_copy[256];
+    strncpy(line_copy, line, sizeof(line_copy) - 1);
+    line_copy[sizeof(line_copy) - 1] = '\0';
+
+    char* saveptr;
+    char* token = strtok_r(line_copy, ",\n", &saveptr);
+    if (!token) return false;
+    acc->user_id = atoi(token);
+
+    token = strtok_r(NULL, ",\n", &saveptr);
+    if (!token) return false;
+    strncpy(acc->username, token, sizeof(acc->username) - 1);
+    acc->username[sizeof(acc->username) - 1] = '\0';
+
+    token = strtok_r(NULL, ",\n", &saveptr);
+    if (!token) return false;
+    strncpy(acc->password, token, sizeof(acc->password) - 1);
+    acc->password[sizeof(acc->password) - 1] = '\0';
+
+    token = strtok_r(NULL, ",\n", &saveptr);
+    if (!token) return false;
+    acc->balance = atof(token);
+    
+    num_accounts++;
+    return true;
+}
+
+// Initialize database
+bool account_db_init(const char* db_path) {
+    if (pthread_mutex_init(&db_mutex, NULL) != 0) {
+        fprintf(stderr, "[DB] Mutex init failed\n");
+        return false;
+    }
+
+    const char* path = db_path ? db_path : DB_PATH;
+    FILE* fp = fopen(path, "r");
     if (!fp) {
-        fprintf(stderr, "[DB] Error opening accounts file: %s\n", DB_PATH);
-        return NULL;
+        fprintf(stderr, "[DB] Cannot open accounts database: %s\n", path);
+        return false;
     }
 
     char line[256];
     while (fgets(line, sizeof(line), fp)) {
-        // Remove newline
-        size_t len = strlen(line);
-        if (len > 0 && line[len - 1] == '\n') {
-            line[len - 1] = '\0';
+        if (!parse_account_line(line)) {
+            fprintf(stderr, "[DB] Failed to parse line: %s", line);
         }
-
-        account_t* acc = parse_account_line(line);
-        if (!acc) continue;
-
-        // Check if username and password match
-        if (strcmp(acc->username, username) == 0 && strcmp(acc->password, password) == 0) {
-            fclose(fp);
-            return acc;  // Found!
-        }
-
-        free(acc);
     }
 
     fclose(fp);
-
-    // Not found - return account with found=0
-    account_t* not_found = malloc(sizeof(account_t));
-    if (not_found) {
-        not_found->found = 0;
-    }
-    return not_found;
+    printf("[DB] Accounts database initialized with %d accounts\n", num_accounts);
+    return true;
 }
 
 // Free account structure
@@ -101,111 +110,148 @@ void account_db_free(account_t* acc) {
     }
 }
 
-// Initialize database (just validate file exists)
-int account_db_init(const char* db_path) {
-    FILE* fp = fopen(db_path ? db_path : DB_PATH, "r");
-    if (!fp) {
-        fprintf(stderr, "[DB] Cannot open accounts database\n");
-        return -1;
+// Check if a username exists
+bool account_db_username_exists(const char* username) {
+    bool exists = false;
+    pthread_mutex_lock(&db_mutex);
+    for (int i = 0; i < num_accounts; ++i) {
+        if (strcmp(accounts[i].username, username) == 0) {
+            exists = true;
+            break;
+        }
     }
-    fclose(fp);
-    printf("[DB] Accounts database initialized\n");
-    return 0;
+    pthread_mutex_unlock(&db_mutex);
+    return exists;
+}
+
+// Add a new user to the database
+bool account_db_add(const char* username, const char* password) {
+    if (!username || !password) {
+        return false;
+    }
+
+    pthread_mutex_lock(&db_mutex);
+
+    if (num_accounts >= MAX_ACCOUNTS) {
+        fprintf(stderr, "[DB] Cannot add new user, database is full.\n");
+        pthread_mutex_unlock(&db_mutex);
+        return false;
+    }
+
+    for (int i = 0; i < num_accounts; ++i) {
+        if (strcmp(accounts[i].username, username) == 0) {
+            fprintf(stderr, "[DB] Username '%s' already exists.\n", username);
+            pthread_mutex_unlock(&db_mutex);
+            return false;
+        }
+    }
+
+    account_t* new_acc = &accounts[num_accounts];
+    new_acc->user_id = num_accounts > 0 ? accounts[num_accounts - 1].user_id + 1 : 1;
+    strncpy(new_acc->username, username, sizeof(new_acc->username) - 1);
+    new_acc->username[sizeof(new_acc->username) - 1] = '\0';
+    
+    char hashed_pass[32];
+    hash_password(password, hashed_pass);
+    strncpy(new_acc->password, hashed_pass, sizeof(new_acc->password) - 1);
+    new_acc->password[sizeof(new_acc->password) - 1] = '\0';
+
+    new_acc->balance = 10000.0; // Default starting balance
+
+    num_accounts++;
+
+    bool success = persist_db();
+    pthread_mutex_unlock(&db_mutex);
+
+    if (success) {
+        printf("[DB] Added new user: %s\n", username);
+    }
+
+    return success;
+}
+
+// Lookup account by username and password
+account_t* account_db_lookup(const char* username, const char* password) {
+    if (!username || !password) {
+        return NULL;
+    }
+
+    char hashed_pass[32];
+    hash_password(password, hashed_pass);
+
+    account_t* found_acc = NULL;
+    pthread_mutex_lock(&db_mutex);
+    for (int i = 0; i < num_accounts; ++i) {
+        if (strcmp(accounts[i].username, username) == 0 && strcmp(accounts[i].password, hashed_pass) == 0) {
+            found_acc = malloc(sizeof(account_t));
+            if (found_acc) {
+                memcpy(found_acc, &accounts[i], sizeof(account_t));
+            }
+            break;
+        }
+    }
+    pthread_mutex_unlock(&db_mutex);
+
+    return found_acc;
 }
 
 // Get account by user ID
 account_t* account_db_get_by_id(uint32_t user_id) {
     if (user_id == 0) return NULL;
 
-    FILE* fp = fopen(DB_PATH, "r");
-    if (!fp) {
-        fprintf(stderr, "[DB] Error opening accounts file: %s\n", DB_PATH);
-        return NULL;
-    }
-
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        size_t len = strlen(line);
-        if (len > 0 && line[len - 1] == '\n') {
-            line[len - 1] = '\0';
+    account_t* found_acc = NULL;
+    pthread_mutex_lock(&db_mutex);
+    for (int i = 0; i < num_accounts; ++i) {
+        if (accounts[i].user_id == user_id) {
+            found_acc = malloc(sizeof(account_t));
+            if (found_acc) {
+                memcpy(found_acc, &accounts[i], sizeof(account_t));
+            }
+            break;
         }
-
-        account_t* acc = parse_account_line(line);
-        if (!acc) continue;
-
-        if (acc->user_id == user_id) {
-            fclose(fp);
-            return acc;
-        }
-
-        free(acc);
     }
+    pthread_mutex_unlock(&db_mutex);
 
-    fclose(fp);
-    return NULL;
+    return found_acc;
 }
 
 // Get balance for a user
 double account_db_get_balance(uint32_t user_id) {
-    account_t* acc = account_db_get_by_id(user_id);
-    if (!acc) return 0.0;
-    double balance = acc->balance;
-    account_db_free(acc);
+    double balance = -1.0;
+    pthread_mutex_lock(&db_mutex);
+    for (int i = 0; i < num_accounts; ++i) {
+        if (accounts[i].user_id == user_id) {
+            balance = accounts[i].balance;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&db_mutex);
     return balance;
 }
 
-// Update balance for a user (in-memory only, persists in file at next login)
-int account_db_update_balance(uint32_t user_id, double new_balance) {
-    // For simplicity, we'll update the file directly
-    // Read all accounts
-    FILE* fp = fopen(DB_PATH, "r");
-    if (!fp) {
-        fprintf(stderr, "[DB] Cannot open accounts file for update\n");
-        return -1;
-    }
+// Update balance for a user
+bool account_db_update_balance(uint32_t user_id, double new_balance) {
+    bool success = false;
+    pthread_mutex_lock(&db_mutex);
 
-    char lines[100][256];
-    int line_count = 0;
-    char temp_line[256];
-
-    while (fgets(temp_line, sizeof(temp_line), fp) && line_count < 100) {
-        strcpy(lines[line_count], temp_line);
-        line_count++;
-    }
-    fclose(fp);
-
-    // Update the target user
-    int found = 0;
-    for (int i = 0; i < line_count; i++) {
-        account_t* acc = parse_account_line(lines[i]);
-        if (acc && acc->user_id == user_id) {
-            // Reconstruct the line with new balance
-            snprintf(lines[i], 256, "%u,%s,%s,%.2f\n", 
-                     user_id, acc->username, acc->password, new_balance);
-            found = 1;
-            free(acc);
+    int found_idx = -1;
+    for (int i = 0; i < num_accounts; i++) {
+        if (accounts[i].user_id == user_id) {
+            found_idx = i;
             break;
         }
-        if (acc) free(acc);
     }
 
-    if (!found) {
+    if (found_idx != -1) {
+        accounts[found_idx].balance = new_balance;
+        if (persist_db()) {
+            success = true;
+            printf("[DB] Updated balance for user %u to %.2f\n", user_id, new_balance);
+        }
+    } else {
         fprintf(stderr, "[DB] User ID %u not found for balance update\n", user_id);
-        return -1;
     }
-
-    // Write back to file
-    fp = fopen(DB_PATH, "w");
-    if (!fp) {
-        fprintf(stderr, "[DB] Cannot open accounts file for writing\n");
-        return -1;
-    }
-
-    for (int i = 0; i < line_count; i++) {
-        fputs(lines[i], fp);
-    }
-    fclose(fp);
-
-    printf("[DB] Updated balance for user %u to %.2f\n", user_id, new_balance);
-    return 0;
+    
+    pthread_mutex_unlock(&db_mutex);
+    return success;
 }

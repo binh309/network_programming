@@ -1,64 +1,61 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include "view_stocks.h"
 #include "../data/stock_db.h"
+#include "../network/packet.h"
+#include "../network/protocol.h"
+#include "../model/error.h"
 
-// Handle view stocks request - return list of all available stocks
-void handle_view_stocks_request(int client_fd) {
-    printf("[FEATURE] View stocks request from fd=%d\n", client_fd);
+// Handle view stocks request
+void handle_view_stocks_request(int client_socket, const packet_t* request, session_t* session) {
+    printf("[FEATURE] View stocks request from user %s (ID: %u)\n", session->username, session->user_id);
 
-    // Get all stocks from database
     int stock_count = 0;
     stock_t* stocks = stock_db_get_all(&stock_count);
 
     if (!stocks || stock_count == 0) {
-        printf("[FEATURE] No stocks found\n");
-        
-        struct packet_header resp_hdr = {
-            .type = MSG_VIEW_STOCKS_RESPONSE,
-            .length = sizeof(struct view_stocks_response)
-        };
-
-        struct view_stocks_response resp = {
-            .status = STATUS_FAILED,
-            .stock_count = 0
-        };
-
-        send(client_fd, &resp_hdr, sizeof(resp_hdr), 0);
-        send(client_fd, &resp, sizeof(resp), 0);
+        send_error(client_socket, request->header.request_id, "No stocks available in the market.");
+        if (stocks) stock_db_free(stocks);
         return;
     }
 
-    // Build response header
-    struct packet_header resp_hdr = {
-        .type = MSG_VIEW_STOCKS_RESPONSE,
-        .length = sizeof(struct view_stocks_response) + (stock_count * sizeof(struct stock_info))
-    };
-
-    // Send header
-    send(client_fd, &resp_hdr, sizeof(resp_hdr), 0);
-
-    // Send response with stock count
-    struct view_stocks_response resp = {
-        .status = STATUS_SUCCESS,
-        .stock_count = stock_count
-    };
-    send(client_fd, &resp, sizeof(resp), 0);
-
-    // Send each stock
-    for (int i = 0; i < stock_count; i++) {
-        struct stock_info info;
-        info.stock_id = stocks[i].stock_id;
-        strncpy(info.symbol, stocks[i].symbol, 15);
-        info.symbol[15] = '\0';
-        info.current_price = stocks[i].current_price;
-        info.available_quantity = stocks[i].available_quantity;
-
-        send(client_fd, &info, sizeof(info), 0);
-        printf("[FEATURE] Sent stock: %s @ $%.2f (%u available)\n", info.symbol, info.current_price, info.available_quantity);
+    // Allocate a large buffer to build the response body
+    // Format: "ID,SYMBOL,NAME,BID,ASK,LAST_PRICE;..."
+    size_t buffer_size = stock_count * 128; // Estimate size
+    char* response_body = malloc(buffer_size);
+    if (!response_body) {
+        send_error(client_socket, request->header.request_id, "Server memory error.");
+        stock_db_free(stocks);
+        return;
     }
 
-    printf("[FEATURE] View stocks response sent to fd=%d (%d stocks)\n", client_fd, stock_count);
+    char* ptr = response_body;
+    size_t remaining_size = buffer_size;
+
+    for (int i = 0; i < stock_count; i++) {
+        int written = snprintf(ptr, remaining_size, "%u,%s,%s,%.2f,%.2f,%.2f;",
+                               stocks[i].stock_id,
+                               stocks[i].symbol,
+                               stocks[i].name,
+                               stocks[i].best_bid,
+                               stocks[i].best_ask,
+                               stocks[i].last_price);
+        
+        if (written < 0 || (size_t)written >= remaining_size) {
+            // Error or buffer too small
+            break;
+        }
+        ptr += written;
+        remaining_size -= written;
+    }
+
+    packet_t response;
+    create_packet(&response, request->header.request_id, SMSG_VIEW_STOCKS_DATA, response_body);
+    send_packet(client_socket, &response);
+
+    free(response_body);
+    stock_db_free(stocks);
+
+    printf("[FEATURE] Sent %d stocks to user %s\n", stock_count, session->username);
 }

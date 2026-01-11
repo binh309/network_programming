@@ -3,7 +3,7 @@ CFLAGS = -Wall -Wextra -O2 -I.
 LDFLAGS = -lm -lpthread
 
 # Source files
-CLIENT_SOURCES = client.c
+CLIENT_SOURCES = client.c packet.c
 CLIENT_OBJECTS = $(CLIENT_SOURCES:.c=.o)
 CLIENT_BIN = client
 

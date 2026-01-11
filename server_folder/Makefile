@@ -3,8 +3,8 @@ CFLAGS = -Wall -Wextra -O2 -I.
 LDFLAGS = -lm -lpthread
 
 # Source files
-SERVER_SOURCES = core/server.c core/session_manager.c core/portfolio_manager.c data/account_db.c data/stock_db.c data/portfolio_db.c data/transaction_db.c features/view_stocks.c features/dispatcher.c features/market.c features/buy_stock.c features/sell_stock.c features/see_balance.c
-CLIENT_SOURCES = ../client_app/client.c
+SERVER_SOURCES = core/server.c core/session_manager.c data/account_db.c data/stock_db.c data/portfolio_db.c features/view_stocks.c features/dispatcher.c features/market.c features/buy_stock.c features/sell_stock.c features/see_balance.c features/register.c features/login.c features/see_my_stocks.c network/packet.c model/error.c
+CLIENT_SOURCES = ../client_app/client.c network/packet.c
 
 # Object files
 SERVER_OBJECTS = $(SERVER_SOURCES:.c=.o)

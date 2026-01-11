@@ -11,11 +11,10 @@
 #include <pthread.h>
 #include "server.h"
 #include "session_manager.h"
-#include "portfolio_manager.h"
-#include "../network/protocol.h"
+#include "../network/packet.h"
 #include "../data/account_db.h"
 #include "../data/stock_db.h"
-#include "../data/transaction_db.h"
+#include "../data/portfolio_db.h"
 #include "../features/dispatcher.h"
 #include "../features/market.h"
 
@@ -34,7 +33,6 @@ server_context_t* server_init(int port) {
         return NULL;
     }
 
-    // Create listening socket
     ctx->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (ctx->listen_fd < 0) {
         perror("socket");
@@ -42,7 +40,6 @@ server_context_t* server_init(int port) {
         return NULL;
     }
 
-    // Allow socket reuse
     int opt = 1;
     if (setsockopt(ctx->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt");
@@ -51,7 +48,6 @@ server_context_t* server_init(int port) {
         return NULL;
     }
 
-    // Bind to port
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
         .sin_port = htons(port),
@@ -65,7 +61,6 @@ server_context_t* server_init(int port) {
         return NULL;
     }
 
-    // Listen for connections
     if (listen(ctx->listen_fd, LISTEN_BACKLOG) < 0) {
         perror("listen");
         close(ctx->listen_fd);
@@ -73,7 +68,6 @@ server_context_t* server_init(int port) {
         return NULL;
     }
 
-    // Set to non-blocking
     if (set_nonblocking(ctx->listen_fd) < 0) {
         perror("fcntl");
         close(ctx->listen_fd);
@@ -81,7 +75,6 @@ server_context_t* server_init(int port) {
         return NULL;
     }
 
-    // Create epoll instance
     ctx->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (ctx->epoll_fd < 0) {
         perror("epoll_create1");
@@ -90,7 +83,6 @@ server_context_t* server_init(int port) {
         return NULL;
     }
 
-    // Register listening socket with epoll
     struct epoll_event ev;
     ev.events = EPOLLIN;
     ev.data.fd = ctx->listen_fd;
@@ -106,82 +98,65 @@ server_context_t* server_init(int port) {
     return ctx;
 }
 
-// Handle incoming client data
+// Handle incoming client data with buffering
 void handle_client_read(server_context_t* ctx, int client_fd) {
-    char buffer[BUFFER_SIZE];
-    ssize_t n = recv(client_fd, buffer, BUFFER_SIZE, 0);
+    session_t* session = session_mgr_get(client_fd);
+    if (!session) return;
 
-    if (n < 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            perror("recv");
-            close(client_fd);
-            epoll_ctl(ctx->epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
+    // Read data into the session's buffer
+    ssize_t bytes_read = read(client_fd, 
+                              session->read_buffer + session->read_offset, 
+                              BUFFER_SIZE - session->read_offset);
+
+    if (bytes_read <= 0) {
+        if (bytes_read < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // No more data to read right now
+            return;
         }
-        return;
-    }
-
-    if (n == 0) {
-        // Client disconnected
-        printf("[SERVER] Client fd=%d disconnected\n", client_fd);
+        // Connection closed or error
+        printf("[SERVER] Client fd=%d disconnected or read error\n", client_fd);
         session_mgr_logout(client_fd);
         close(client_fd);
         epoll_ctl(ctx->epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
         return;
     }
 
-    // Parse packet header
-    size_t bytes_received = (size_t)n;
-    if (bytes_received >= sizeof(struct packet_header)) {
-        struct packet_header* hdr = (struct packet_header*)buffer;
-        printf("[SERVER] Received message type=0x%02x, length=%u from fd=%d\n", hdr->type, hdr->length, client_fd);
+    session->read_offset += bytes_read;
 
-        // Check if we have the full message (header + payload)
-        if (bytes_received >= sizeof(struct packet_header) + hdr->length) {
-            char* payload = buffer + sizeof(struct packet_header);
-            dispatcher_handle_message(client_fd, hdr, payload);
+    // Process all complete packets in the buffer
+    while (session->read_offset >= (int)sizeof(packet_header_t)) {
+        packet_header_t* net_header = (packet_header_t*)session->read_buffer;
+        uint16_t body_len = ntohs(net_header->length);
+        size_t total_packet_size = sizeof(packet_header_t) + body_len;
+
+        if ((size_t)session->read_offset < total_packet_size) {
+            // Not enough data for the full packet, wait for more
+            break; 
         }
-    }
-}
 
-// Handle login request - validate against accounts database
-void handle_login_request(int client_fd, struct login_payload* payload) {
-    printf("[SERVER] Login request: username=%s\n", payload->username);
+        // We have a full packet
+        packet_t request;
+        request.header.request_id = ntohs(net_header->request_id);
+        request.header.type = net_header->type;
+        request.header.length = body_len;
 
-    // Lookup account in database
-    account_t* acc = account_db_lookup(payload->username, payload->password);
+        if (body_len > 0) {
+            memcpy(request.body, session->read_buffer + sizeof(packet_header_t), body_len);
+        }
+        request.body[body_len] = '\0';
 
-    struct packet_header resp_hdr = {
-        .type = MSG_LOGIN_RESPONSE,
-        .length = sizeof(struct login_response)
-    };
-
-    struct login_response resp;
-
-    if (acc && acc->found) {
-        resp.status = STATUS_SUCCESS;
-        snprintf(resp.message, 64, "Login successful! Balance: $%.2f", acc->balance);
-        printf("[SERVER] User %s authenticated (ID=%u, Balance=%.2f)\n", acc->username, acc->user_id, acc->balance);
+        // Dispatch the packet
+        dispatcher_handle_message(client_fd, &request, session);
         
-        // Register session
-        session_mgr_authenticate(client_fd, acc->user_id, acc->username);
-    } else {
-        resp.status = STATUS_FAILED;
-        strncpy(resp.message, "Invalid username or password", 64);
-        printf("[SERVER] Authentication failed for user %s\n", payload->username);
-    }
-
-    // Send header + payload together
-    char buffer[sizeof(struct packet_header) + sizeof(struct login_response)];
-    memcpy(buffer, &resp_hdr, sizeof(resp_hdr));
-    memcpy(buffer + sizeof(resp_hdr), &resp, sizeof(resp));
-    send(client_fd, buffer, sizeof(buffer), 0);
-
-    printf("[SERVER] Sent login response to fd=%d (status=%d)\n", client_fd, resp.status);
-
-    if (acc) {
-        account_db_free(acc);
+        // Remove processed packet from buffer
+        int remaining_data = session->read_offset - total_packet_size;
+        if (remaining_data > 0) {
+            memmove(session->read_buffer, session->read_buffer + total_packet_size, remaining_data);
+        }
+        session->read_offset = remaining_data;
     }
 }
+
 
 // Main event loop
 void server_run(server_context_t* ctx) {
@@ -189,7 +164,6 @@ void server_run(server_context_t* ctx) {
 
     while (1) {
         int nfds = epoll_wait(ctx->epoll_fd, ctx->events, MAX_EVENTS, -1);
-
         if (nfds < 0) {
             perror("epoll_wait");
             break;
@@ -198,25 +172,23 @@ void server_run(server_context_t* ctx) {
         for (int i = 0; i < nfds; i++) {
             int fd = ctx->events[i].data.fd;
 
-            // New connection on listening socket
             if (fd == ctx->listen_fd) {
                 struct sockaddr_in client_addr;
                 socklen_t addr_len = sizeof(client_addr);
-
                 int client_fd = accept(ctx->listen_fd, (struct sockaddr*)&client_addr, &addr_len);
                 if (client_fd < 0) {
                     perror("accept");
                     continue;
                 }
 
-                // Set client socket to non-blocking
                 if (set_nonblocking(client_fd) < 0) {
                     perror("fcntl client");
                     close(client_fd);
                     continue;
                 }
+                
+                session_mgr_add(client_fd);
 
-                // Add client to epoll
                 struct epoll_event ev;
                 ev.events = EPOLLIN | EPOLLERR | EPOLLHUP;
                 ev.data.fd = client_fd;
@@ -228,13 +200,12 @@ void server_run(server_context_t* ctx) {
 
                 printf("[SERVER] New client fd=%d from %s:%d\n", client_fd, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
             }
-            // Data ready on client socket
             else if (ctx->events[i].events & EPOLLIN) {
                 handle_client_read(ctx, fd);
             }
-            // Error or client disconnection
             else if (ctx->events[i].events & (EPOLLERR | EPOLLHUP)) {
                 printf("[SERVER] Client fd=%d error/disconnect\n", fd);
+                session_mgr_logout(fd);
                 close(fd);
                 epoll_ctl(ctx->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
             }
@@ -249,6 +220,8 @@ void server_shutdown(server_context_t* ctx) {
         if (ctx->listen_fd >= 0) close(ctx->listen_fd);
         free(ctx);
     }
+    portfolio_db_destroy();
+    session_mgr_destroy();
     printf("[SERVER] Shutdown complete\n");
 }
 
@@ -259,37 +232,26 @@ int main(int argc, char* argv[]) {
         port = atoi(argv[1]);
     }
 
-    // Initialize accounts database
-    if (account_db_init(NULL) < 0) {
+    if (!account_db_init(NULL)) {
         fprintf(stderr, "Failed to initialize accounts database\n");
         return 1;
     }
 
-    // Initialize stocks database
-    if (stock_db_init(NULL) <= 0) {
+    if (!stock_db_init(NULL)) {
         fprintf(stderr, "Failed to initialize stocks database\n");
         return 1;
     }
 
-    // Initialize session manager
+    if (!portfolio_db_init()) {
+        fprintf(stderr, "Failed to initialize portfolio database\n");
+        return 1;
+    }
+    
     if (session_mgr_init() < 0) {
         fprintf(stderr, "Failed to initialize session manager\n");
         return 1;
     }
 
-    // Initialize portfolio manager
-    if (portfolio_mgr_init() < 0) {
-        fprintf(stderr, "Failed to initialize portfolio manager\n");
-        return 1;
-    }
-
-    // Initialize transaction database
-    if (transaction_db_init() < 0) {
-        fprintf(stderr, "Failed to initialize transaction database\n");
-        return 1;
-    }
-
-    // Start market update thread
     pthread_t market_tid;
     pthread_create(&market_tid, NULL, market_update_thread, NULL);
     pthread_detach(market_tid);

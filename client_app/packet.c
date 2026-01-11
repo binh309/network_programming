@@ -30,6 +30,29 @@ static int send_all(int sockfd, const void* buf, size_t len) {
     return 0;
 }
 
+// Helper function to receive a precise number of bytes
+static int recv_all(int sockfd, void* buf, size_t len) {
+    size_t total_recv = 0;
+    while (total_recv < len) {
+        ssize_t received = read(sockfd, (char*)buf + total_recv, len - total_recv);
+        if (received < 0) {
+             if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // This shouldn't happen with a blocking read, but as a safeguard...
+                perror("read would block");
+                return -1;
+            }
+            perror("read failed in recv_all");
+            return -1;
+        }
+        if (received == 0) {
+            fprintf(stderr, "Connection closed by peer during receive.\n");
+            return -1; 
+        }
+        total_recv += received;
+    }
+    return 0;
+}
+
 
 // Create a new packet
 void create_packet(packet_t* packet, uint16_t request_id, uint8_t type, const char* body) {
@@ -76,6 +99,42 @@ int send_packet(int sockfd, const packet_t* packet) {
             return -1;
         }
     }
+
+    return 0;
+}
+
+
+// Receive a packet from a socket
+int receive_packet(int sockfd, packet_t* packet) {
+    if (!packet) return -1;
+
+    // Read the header first
+    packet_header_t net_header;
+    if (recv_all(sockfd, &net_header, sizeof(packet_header_t)) != 0) {
+        // Error message is printed in recv_all
+        return -1; 
+    }
+
+    // Convert header from network to host byte order
+    packet->header.request_id = ntohs(net_header.request_id);
+    packet->header.type = net_header.type;
+    packet->header.length = ntohs(net_header.length);
+
+    if (packet->header.length >= MAX_BODY_LEN) {
+        fprintf(stderr, "[PACKET] Declared body length (%u) exceeds or meets max (%d).\n", packet->header.length, MAX_BODY_LEN);
+        return -1;
+    }
+
+    // Read the body
+    if (packet->header.length > 0) {
+        if (recv_all(sockfd, packet->body, packet->header.length) != 0) {
+            fprintf(stderr, "Failed to receive packet body.\n");
+            return -1;
+        }
+    }
+    
+    // Null-terminate the body for safety
+    packet->body[packet->header.length] = '\0';
 
     return 0;
 }

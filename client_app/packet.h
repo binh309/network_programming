@@ -25,4 +25,7 @@ void create_packet(packet_t* packet, uint16_t request_id, uint8_t type, const ch
 // Function to send a packet over a socket
 int send_packet(int sockfd, const packet_t* packet);
 
+// Function to receive a packet from a socket
+int receive_packet(int sockfd, packet_t* packet);
+
 #endif
