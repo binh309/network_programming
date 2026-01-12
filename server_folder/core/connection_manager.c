@@ -1,3 +1,4 @@
+#include "../ui/tui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +34,7 @@ int connection_mgr_init(void) {
         return -1;
     }
     
-    printf("[CONN_MGR] Initialized (with O(1) hash table)\n");
+    server_debug("[CONN_MGR] Initialized (with O(1) hash table)\n");
     return 0;
 }
 
@@ -56,7 +57,7 @@ void connection_mgr_destroy(void) {
     }
     pthread_mutex_unlock(&connections_mutex);
     pthread_mutex_destroy(&connections_mutex);
-    printf("[CONN_MGR] Destroyed\n");
+    server_debug("[CONN_MGR] Destroyed\n");
 }
 
 /**
@@ -123,7 +124,7 @@ connection_t* connection_mgr_add(int client_socket) {
     }
 
     pthread_mutex_unlock(&connections_mutex);
-    printf("[CONN_MGR] Added new connection for socket %d (state=ACCEPTING, hash_size=%d)\n", 
+    server_debug("[CONN_MGR] Added new connection for socket %d (state=ACCEPTING, hash_size=%d)\n", 
            client_socket, connection_hash_size());
     return new_connection;
 }
@@ -160,7 +161,7 @@ void connection_mgr_remove(int client_socket) {
     // Find and remove from legacy array
     for (int i = 0; i < MAX_CONNECTIONS; i++) {
         if (connections[i] && connections[i]->client_socket == client_socket) {
-            printf("[CONN_MGR] Removing connection for socket %d, user %s (hash_size=%d->%d)\n", 
+            server_debug("[CONN_MGR] Removing connection for socket %d, user %s (hash_size=%d->%d)\n", 
                    client_socket, connections[i]->username, 
                    connection_hash_size(), connection_hash_size() - 1);
             
@@ -237,7 +238,7 @@ int connection_mgr_set_state(connection_t* conn, ConnectionState new_state) {
     }
     
     conn->state = new_state;
-    printf("[CONN_MGR] Socket %d: state %d -> %d\n", conn->client_socket, current, new_state);
+    server_debug("[CONN_MGR] Socket %d: state %d -> %d\n", conn->client_socket, current, new_state);
     
     pthread_mutex_unlock(&conn->state_lock);
     return 0;

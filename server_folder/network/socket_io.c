@@ -1,3 +1,4 @@
+#include "ui/tui.h"
 #include "socket_io.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,7 +71,7 @@ int socket_io_create_server(int port) {
         return -1;
     }
 
-    printf("[SocketIO] Server listening on port %d\n", port);
+    server_debug("[SocketIO] Server listening on port %d\n", port);
     return listen_fd;
 }
 

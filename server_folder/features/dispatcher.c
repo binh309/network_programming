@@ -1,3 +1,4 @@
+#include "../ui/tui.h"
 #include <stdio.h>
 #include <string.h>
 #include "dispatcher.h"
@@ -36,29 +37,29 @@ static bool is_authenticated(connection_t* connection) {
  * - Phase 3: Remove send_*() from handlers entirely
  */
 dispatcher_status_t dispatcher_handle_message(int client_socket, const packet_t* packet, connection_t* connection) {
-    printf("[DISPATCHER] Handling message type=0x%02x from fd=%d (response ownership in request_handler)\n", 
+    server_debug("[DISPATCHER] Handling message type=0x%02x from fd=%d (response ownership in request_handler)\n", 
            packet->header.type, client_socket);
 
     // These messages can be handled without being logged in
     switch (packet->header.type) {
         case CMSG_REGISTER:
-            printf("[DISPATCHER] → Routing to REGISTER handler\n");
+            server_debug("[DISPATCHER] → Routing to REGISTER handler\n");
             // Currently: handle_register_request() sends response directly
             // Migration needed: Make it return status code
             handle_register_request(client_socket, packet, connection);
             return DISP_OK;  // For now, assume success
             
         case CMSG_LOGIN:
-            printf("[DISPATCHER] → Routing to LOGIN handler\n");
+            server_debug("[DISPATCHER] → Routing to LOGIN handler\n");
             // Currently: handle_login_request() sends response directly
             // Migration needed: Make it return status code
             handle_login_request(client_socket, packet, connection);
-            printf("[DISPATCHER] ← LOGIN handler returned\n");
+            server_debug("[DISPATCHER] ← LOGIN handler returned\n");
             return DISP_OK;  // For now, assume success (actual check in handler)
             
         case CMSG_LOGOUT:
         {
-            printf("[DISPATCHER] → Routing to LOGOUT handler\n");
+            server_debug("[DISPATCHER] → Routing to LOGOUT handler\n");
             // Handle logout: clear session and send response
             if (connection) {
                 uint32_t user_id = connection->user_id;
@@ -76,7 +77,7 @@ dispatcher_status_t dispatcher_handle_message(int client_socket, const packet_t*
             packet_t response;
             create_packet(&response, packet->header.request_id, SMSG_LOGOUT_SUCCESS, "Logged out successfully");
             send_packet(client_socket, &response);
-            printf("[DISPATCHER] ← LOGOUT handler returned\n");
+            server_debug("[DISPATCHER] ← LOGOUT handler returned\n");
             return DISP_OK;
         }
     }
@@ -115,7 +116,7 @@ dispatcher_status_t dispatcher_handle_message(int client_socket, const packet_t*
             return DISP_OK;
             
         default:
-            printf("[DISPATCHER] Unknown message type for authenticated user: 0x%02x\n", packet->header.type);
+            server_debug("[DISPATCHER] Unknown message type for authenticated user: 0x%02x\n", packet->header.type);
             send_error(client_socket, packet->header.request_id, "Unknown or invalid request.");
             return DISP_UNKNOWN_COMMAND;
     }

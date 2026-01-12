@@ -1,3 +1,4 @@
+#include "ui/tui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,13 +96,13 @@ bool stock_db_init(const char* db_path) {
         // Timestamp: now
         s->last_update_time = time(NULL);
         
-        printf("[DB] Loaded stock #%d: %s (%s) - Last: $%.2f (Bid qty: %u, Ask qty: %u)\n", 
+        server_debug("[DB] Loaded stock #%d: %s (%s) - Last: $%.2f (Bid qty: %u, Ask qty: %u)\n", 
                s->stock_id, s->symbol, s->name, s->last_price, s->bid_quantity, s->ask_quantity);
         stock_count++;
     }
 
     fclose(fp);
-    printf("[DB] Stocks database initialized with %d stocks\n", stock_count);
+    server_debug("[DB] Stocks database initialized with %d stocks\n", stock_count);
     return true;
 }
 
@@ -291,15 +292,15 @@ bool stock_db_atomic_buy(uint16_t stock_id, uint32_t quantity, uint32_t* new_vol
             // Persist to disk
             if (persist_db()) {
                 success = true;
-                printf("[STOCK_DB] Atomic buy: stock %u, qty %u, new_volume %u\n", 
+                server_debug("[STOCK_DB] Atomic buy: stock %u, qty %u, new_volume %u\n", 
                        stock_id, quantity, stocks[found_idx].volume);
             } else {
                 // Rollback if persist failed
                 stocks[found_idx].volume += quantity;
-                printf("[STOCK_DB] Atomic buy FAILED: persist error, rolled back\n");
+                server_debug("[STOCK_DB] Atomic buy FAILED: persist error, rolled back\n");
             }
         } else {
-            printf("[STOCK_DB] Atomic buy FAILED: insufficient volume (%u < %u)\n", 
+            server_debug("[STOCK_DB] Atomic buy FAILED: insufficient volume (%u < %u)\n", 
                    stocks[found_idx].volume, quantity);
         }
     }
@@ -340,12 +341,12 @@ bool stock_db_atomic_sell(uint16_t stock_id, uint32_t quantity, uint32_t* new_vo
         // Persist to disk
         if (persist_db()) {
             success = true;
-            printf("[STOCK_DB] Atomic sell: stock %u, qty %u, new_volume %u\n", 
+            server_debug("[STOCK_DB] Atomic sell: stock %u, qty %u, new_volume %u\n", 
                    stock_id, quantity, stocks[found_idx].volume);
         } else {
             // Rollback if persist failed
             stocks[found_idx].volume -= quantity;
-            printf("[STOCK_DB] Atomic sell FAILED: persist error, rolled back\n");
+            server_debug("[STOCK_DB] Atomic sell FAILED: persist error, rolled back\n");
         }
     }
 

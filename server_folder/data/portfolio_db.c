@@ -1,3 +1,4 @@
+#include "ui/tui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,7 +26,7 @@ bool portfolio_db_init() {
     if (!portfolio_db_load()) {
         fprintf(stderr, "[PORTF_DB] Failed to load portfolio data. Starting fresh.\n");
     }
-    printf("[PORTF_DB] Portfolio database initialized\n");
+    server_debug("[PORTF_DB] Portfolio database initialized\n");
     return true;
 }
 
@@ -41,7 +42,7 @@ void portfolio_db_destroy() {
     }
     pthread_mutex_unlock(&db_mutex);
     pthread_mutex_destroy(&db_mutex);
-    printf("[PORTF_DB] Portfolio database destroyed\n");
+    server_debug("[PORTF_DB] Portfolio database destroyed\n");
 }
 
 // Free a heap-allocated portfolio copy

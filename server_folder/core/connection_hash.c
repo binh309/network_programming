@@ -1,3 +1,4 @@
+#include "../ui/tui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,13 +26,13 @@ static inline int hash_function(int fd) {
  * Caller must already hold connections_mutex!
  */
 int connection_hash_init(void) {
-    printf("[CONN_HASH] Initializing hash table with %d buckets\n", CONN_HASH_SIZE);
+    server_debug("[CONN_HASH] Initializing hash table with %d buckets\n", CONN_HASH_SIZE);
     
     // memset handles NULL initialization
     memset(hash_buckets, 0, sizeof(hash_buckets));
     hash_table_size = 0;
     
-    printf("[CONN_HASH] Initialized\n");
+    server_debug("[CONN_HASH] Initialized\n");
     return 0;
 }
 
@@ -39,7 +40,7 @@ int connection_hash_init(void) {
  * @brief Destroy hash table
  */
 void connection_hash_destroy(void) {
-    printf("[CONN_HASH] Destroying hash table\n");
+    server_debug("[CONN_HASH] Destroying hash table\n");
     
     for (int i = 0; i < CONN_HASH_SIZE; i++) {
         connection_hash_entry_t* entry = hash_buckets[i];
@@ -52,7 +53,7 @@ void connection_hash_destroy(void) {
     }
     
     hash_table_size = 0;
-    printf("[CONN_HASH] Destroyed\n");
+    server_debug("[CONN_HASH] Destroyed\n");
 }
 
 /**
@@ -192,7 +193,7 @@ void connection_hash_stats(void) {
     double load_factor = (double)hash_table_size / CONN_HASH_SIZE;
     double avg_chain = (double)total_chain_length / (CONN_HASH_SIZE - empty_buckets + 1);
     
-    printf("[CONN_HASH] Statistics:\n");
+    server_debug("[CONN_HASH] Statistics:\n");
     printf("  Entries: %d\n", hash_table_size);
     printf("  Buckets: %d\n", CONN_HASH_SIZE);
     printf("  Load factor: %.2f\n", load_factor);

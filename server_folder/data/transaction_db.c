@@ -1,3 +1,4 @@
+#include "ui/tui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +19,7 @@ int transaction_db_init(void) {
     transaction_count = 0;
     next_order_id = 1001;
     pthread_mutex_unlock(&transaction_lock);
-    printf("[TRANSACTION_DB] Initialized\n");
+    server_debug("[TRANSACTION_DB] Initialized\n");
     return 0;
 }
 
@@ -28,7 +29,7 @@ uint32_t transaction_db_record(uint32_t user_id, uint8_t type, uint16_t stock_id
     pthread_mutex_lock(&transaction_lock);
     
     if (transaction_count >= MAX_TRANSACTIONS) {
-        printf("[TRANSACTION_DB] Transaction limit reached\n");
+        server_debug("[TRANSACTION_DB] Transaction limit reached\n");
         pthread_mutex_unlock(&transaction_lock);
         return (uint32_t)-1;
     }
@@ -45,7 +46,7 @@ uint32_t transaction_db_record(uint32_t user_id, uint8_t type, uint16_t stock_id
     
     transaction_count++;
     
-    printf("[TRANSACTION_DB] Recorded: Order ID=%u, User=%u, Type=%s, Stock=%u, Qty=%u, Price=%.2f\n",
+    server_debug("[TRANSACTION_DB] Recorded: Order ID=%u, User=%u, Type=%s, Stock=%u, Qty=%u, Price=%.2f\n",
            tx->order_id, user_id, (type == TRANSACTION_BUY ? "BUY" : "SELL"), 
            stock_id, quantity, price);
     

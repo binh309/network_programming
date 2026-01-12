@@ -1,3 +1,4 @@
+#include "../ui/tui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -39,7 +40,7 @@ int request_handler_process(int client_fd) {
     // Step 2: Validate connection state (without lock - just a peek)
     ConnectionState state = connection_mgr_get_state(conn);
     if (state == CONN_CLOSED || state == CONN_CLOSING) {
-        printf("[HANDLER] Connection fd %d is closing/closed (state=%d), ignoring\n", client_fd, state);
+        server_debug("[HANDLER] Connection fd %d is closing/closed (state=%d), ignoring\n", client_fd, state);
         return -1;  // Close connection
     }
 
@@ -62,13 +63,13 @@ int request_handler_process(int client_fd) {
 
     if (bytes_read == 0) {
         // Client closed connection gracefully
-        printf("[HANDLER] Client on fd %d closed connection (EOF)\n", client_fd);
+        server_debug("[HANDLER] Client on fd %d closed connection (EOF)\n", client_fd);
         connection_mgr_set_state(conn, CONN_CLOSING);
         return -1;  // Close connection
     }
 
-    printf("[HANDLER] Received %ld bytes on fd %d\n", bytes_read, client_fd);
-    printf("[DEBUG] buffer_offset before append=%d\n", conn->read_offset);
+    server_debug("[HANDLER] Received %ld bytes on fd %d\n", bytes_read, client_fd);
+    server_debug("[DEBUG] buffer_offset before append=%d\n", conn->read_offset);
     fflush(stdout);
 
     // Update activity timestamp (connection is active)
@@ -77,7 +78,7 @@ int request_handler_process(int client_fd) {
     // CRITICAL SECTION: Acquire per-connection lock
     // This protects the read_buffer from concurrent access
     pthread_mutex_lock(&conn->state_lock);
-    printf("[DEBUG] Lock acquired\n");
+    server_debug("[DEBUG] Lock acquired\n");
     fflush(stdout);
 
     // Step 4: Append received bytes to connection buffer (Layer 3)
@@ -89,16 +90,16 @@ int request_handler_process(int client_fd) {
         return -1;  // Close connection
     }
     
-    printf("[DEBUG] After append_data: read_offset=%d\n", conn->read_offset);
-    printf("[DEBUG] Buffer contents (first 50 bytes): %.50s\n", conn->read_buffer);
+    server_debug("[DEBUG] After append_data: read_offset=%d\n", conn->read_offset);
+    server_debug("[DEBUG] Buffer contents (first 50 bytes): %.50s\n", conn->read_buffer);
     fflush(stdout);
 
     // Step 5: Process all complete packets in buffer
     // (TCP might deliver multiple packets in one read)
-    printf("[DEBUG] Entering while loop\n");
+    server_debug("[DEBUG] Entering while loop\n");
     fflush(stdout);
     while (1) {
-        printf("[DEBUG] While loop iteration start\n");
+        server_debug("[DEBUG] While loop iteration start\n");
         fflush(stdout);
         // Check if we have a complete packet using new error-aware function
         size_t packet_size = 0;
@@ -108,11 +109,11 @@ int request_handler_process(int client_fd) {
             &packet_size
         );
 
-        printf("[DEBUG] packet_parser_check_message_ex result=%d, packet_size=%lu, buffer_offset=%d\n",
+        server_debug("[DEBUG] packet_parser_check_message_ex result=%d, packet_size=%lu, buffer_offset=%d\n",
                parse_result, packet_size, conn->read_offset);
 
         if (parse_result == PARSE_INCOMPLETE) {
-            printf("[DEBUG] Packet incomplete, waiting for more bytes\n");
+            server_debug("[DEBUG] Packet incomplete, waiting for more bytes\n");
             // No more complete packets, wait for next epoll event
             break;
         }
@@ -134,7 +135,7 @@ int request_handler_process(int client_fd) {
             return -1;
         }
 
-        printf("[HANDLER] Found complete packet size=%zu\n", packet_size);
+        server_debug("[HANDLER] Found complete packet size=%zu\n", packet_size);
 
         // Step 6: Parse the packet (Layer 2 - stateless)
         packet_t packet;
@@ -146,40 +147,40 @@ int request_handler_process(int client_fd) {
             return -1;  // Close connection
         }
 
-        printf("[HANDLER] Parsed packet type=0x%02x, request_id=%u, body_length=%u\n",
+        server_debug("[HANDLER] Parsed packet type=0x%02x, request_id=%u, body_length=%u\n",
                packet.header.type, packet.header.request_id, packet.header.length);
-        printf("[DEBUG] Packet body (first 50 chars): %.50s\n", 
+        server_debug("[DEBUG] Packet body (first 50 chars): %.50s\n", 
                (char*)packet.body);
 
         // Step 7: Transition to PROCESSING state
         ConnectionState before_state = conn->state;
         conn->state = CONN_PROCESSING;
-        printf("[CONN_MGR] Socket %d: state %d -> %d\n", conn->client_socket, before_state, CONN_PROCESSING);
-        printf("[DEBUG] State transition: %d → %d (PROCESSING)\n", before_state, CONN_PROCESSING);
+        server_debug("[CONN_MGR] Socket %d: state %d -> %d\n", conn->client_socket, before_state, CONN_PROCESSING);
+        server_debug("[DEBUG] State transition: %d → %d (PROCESSING)\n", before_state, CONN_PROCESSING);
 
         // Step 8: UNLOCK before calling dispatcher
         // Dispatcher may do long operations (database queries, etc.)
         // We don't want to hold the connection lock during business logic
         pthread_mutex_unlock(&conn->state_lock);
-        printf("[DEBUG] Unlocked, calling dispatcher\n");
+        server_debug("[DEBUG] Unlocked, calling dispatcher\n");
 
         // Route the message to appropriate handler (business logic)
         // NOTE: Dispatcher sends response directly (maintains existing behavior)
         dispatcher_handle_message(client_fd, &packet, conn);
-        printf("[DEBUG] Dispatcher returned\n");
+        server_debug("[DEBUG] Dispatcher returned\n");
 
         // Step 9: RELOCK after dispatcher returns
         pthread_mutex_lock(&conn->state_lock);
-        printf("[DEBUG] Relocked after dispatcher\n");
+        server_debug("[DEBUG] Relocked after dispatcher\n");
 
         // Step 10: Transition back to READY state
         conn->state = CONN_READY;
-        printf("[CONN_MGR] Socket %d: state %d -> %d\n", conn->client_socket, CONN_PROCESSING, CONN_READY);
-        printf("[DEBUG] State transition back to READY\n");
+        server_debug("[CONN_MGR] Socket %d: state %d -> %d\n", conn->client_socket, CONN_PROCESSING, CONN_READY);
+        server_debug("[DEBUG] State transition back to READY\n");
 
         // Step 11: Consume the processed packet from buffer (Layer 3)
         connection_mgr_consume_packet(conn, packet_size);
-        printf("[HANDLER] Consumed %zu byte packet, buffer now has %d bytes remaining\n",
+        server_debug("[HANDLER] Consumed %zu byte packet, buffer now has %d bytes remaining\n",
                packet_size, connection_mgr_get_buffer_offset_unsafe(conn));
     }
 

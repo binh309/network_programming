@@ -7,6 +7,8 @@
 #include "connection_manager.h"
 #include "request_handler.h"
 #include "../network/socket_io.h"
+#include "../ui/tui.h"
+#include "../ui/stats.h"
 
 #define MAX_EVENTS 100
 #define EPOLL_TIMEOUT 1000  // 1 second
@@ -22,7 +24,7 @@
  * Returns context for later use in event_loop_run()
  */
 event_loop_ctx_t* event_loop_init(int port) {
-    printf("[EVENT_LOOP] Initializing on port %d\n", port);
+    server_debug("[EVENT_LOOP] Initializing on port %d\n", port);
 
     // Layer 1: Create server socket
     int listen_fd = socket_io_create_server(port);
@@ -64,7 +66,7 @@ event_loop_ctx_t* event_loop_init(int port) {
     loop->port = port;
     loop->running = 0;
 
-    printf("[EVENT_LOOP] Initialized successfully\n");
+    server_debug("[EVENT_LOOP] Initialized successfully\n");
     return loop;
 }
 
@@ -85,7 +87,7 @@ void event_loop_run(event_loop_ctx_t* loop) {
         return;
     }
 
-    printf("[EVENT_LOOP] Starting event loop\n");
+    server_debug("[EVENT_LOOP] Starting event loop\n");
     loop->running = 1;
 
     struct epoll_event events[MAX_EVENTS];
@@ -110,7 +112,7 @@ void event_loop_run(event_loop_ctx_t* loop) {
             // Check if this is the listening socket
             if (fd == loop->listen_fd) {
                 // ===== NEW CONNECTION =====
-                printf("[EVENT_LOOP] New connection attempt on listening socket\n");
+                server_debug("[EVENT_LOOP] New connection attempt on listening socket\n");
 
                 struct sockaddr_in client_addr;
                 // Layer 1: Accept connection
@@ -120,7 +122,7 @@ void event_loop_run(event_loop_ctx_t* loop) {
                     continue;
                 }
 
-                printf("[EVENT_LOOP] Accepted client on fd %d\n", client_fd);
+                server_debug("[EVENT_LOOP] Accepted client on fd %d\n", client_fd);
 
                 // Add to connection manager (Layer 3)
                 connection_t* conn = connection_mgr_add(client_fd);
@@ -151,12 +153,12 @@ void event_loop_run(event_loop_ctx_t* loop) {
 
             } else {
                 // ===== CLIENT SOCKET EVENT =====
-                printf("[EVENT_LOOP] Event on client fd %d\n", fd);
+                server_debug("[EVENT_LOOP] Event on client fd %d\n", fd);
 
                 // First, get the connection and check its state
                 connection_t* conn = connection_mgr_get(fd);
                 if (!conn) {
-                    printf("[EVENT_LOOP] Connection not found for fd %d (already removed)\n", fd);
+                    server_debug("[EVENT_LOOP] Connection not found for fd %d (already removed)\n", fd);
                     epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
                     close(fd);
                     continue;
@@ -165,7 +167,7 @@ void event_loop_run(event_loop_ctx_t* loop) {
                 // Check for idle connections (timeout after 5 minutes)
                 #define IDLE_TIMEOUT_SECONDS (5 * 60)  // 5 minutes
                 if (connection_mgr_is_idle(conn, IDLE_TIMEOUT_SECONDS)) {
-                    printf("[EVENT_LOOP] ⏱ Closing idle connection on fd %d (no activity for %d seconds)\n", 
+                    server_debug("[EVENT_LOOP] ⏱ Closing idle connection on fd %d (no activity for %d seconds)\n", 
                            fd, IDLE_TIMEOUT_SECONDS);
                     epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
                     connection_mgr_remove(fd);
@@ -175,7 +177,7 @@ void event_loop_run(event_loop_ctx_t* loop) {
 
                 // Check for disconnect events
                 if (events[i].events & EPOLLRDHUP) {
-                    printf("[EVENT_LOOP] Client on fd %d closed connection\n", fd);
+                    server_debug("[EVENT_LOOP] Client on fd %d closed connection\n", fd);
                     epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
                     connection_mgr_remove(fd);
                     close(fd);
@@ -187,7 +189,7 @@ void event_loop_run(event_loop_ctx_t* loop) {
                 // Skip CONN_CLOSED, CONN_CLOSING, CONN_PROCESSING
                 if (!connection_mgr_is_valid_for_processing(conn)) {
                     ConnectionState state = connection_mgr_get_state(conn);
-                    printf("[EVENT_LOOP] ✗ Skipping event on fd %d - invalid state: %s (%d)\n", 
+                    server_debug("[EVENT_LOOP] ✗ Skipping event on fd %d - invalid state: %s (%d)\n", 
                            fd, connection_mgr_state_name(state), state);
                     
                     // If it's in CLOSING or CLOSED state, clean it up
@@ -200,14 +202,14 @@ void event_loop_run(event_loop_ctx_t* loop) {
                 }
                 
                 ConnectionState cur_state = connection_mgr_get_state(conn);
-                printf("[EVENT_LOOP] ✓ Valid state for processing: %s (%d)\n", 
+                server_debug("[EVENT_LOOP] ✓ Valid state for processing: %s (%d)\n", 
                        connection_mgr_state_name(cur_state), cur_state);
 
                 // Process incoming request (Layer 3: request_handler)
                 int result = request_handler_process(fd);
                 if (result < 0) {
                     // Connection should be closed
-                    printf("[EVENT_LOOP] Closing connection on fd %d\n", fd);
+                    server_debug("[EVENT_LOOP] Closing connection on fd %d\n", fd);
                     epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
                     connection_mgr_remove(fd);
                     close(fd);
@@ -216,7 +218,7 @@ void event_loop_run(event_loop_ctx_t* loop) {
         }
     }
 
-    printf("[EVENT_LOOP] Event loop stopped\n");
+    server_debug("[EVENT_LOOP] Event loop stopped\n");
 }
 
 /**
@@ -227,7 +229,7 @@ void event_loop_run(event_loop_ctx_t* loop) {
 void event_loop_shutdown(event_loop_ctx_t* loop) {
     if (!loop) return;
 
-    printf("[EVENT_LOOP] Shutting down\n");
+    server_debug("[EVENT_LOOP] Shutting down\n");
     loop->running = 0;
 
     if (loop->listen_fd >= 0) {
@@ -239,5 +241,97 @@ void event_loop_shutdown(event_loop_ctx_t* loop) {
     }
 
     free(loop);
-    printf("[EVENT_LOOP] Shutdown complete\n");
+    server_debug("[EVENT_LOOP] Shutdown complete\n");
+}
+
+/**
+ * @brief Single step of the event loop (for threaded operation)
+ *
+ * Processes events once with given timeout
+ */
+void event_loop_step(event_loop_ctx_t* loop, int timeout_ms) {
+    if (!loop) return;
+    
+    struct epoll_event events[MAX_EVENTS];
+    
+    // Wait for events with custom timeout
+    int nfds = epoll_wait(loop->epoll_fd, events, MAX_EVENTS, timeout_ms);
+    
+    if (nfds < 0) {
+        if (errno == EINTR) return;  // Interrupted, just return
+        return;
+    }
+    
+    // Process all events
+    for (int i = 0; i < nfds; i++) {
+        int fd = events[i].data.fd;
+        
+        if (fd == loop->listen_fd) {
+            // New connection
+            struct sockaddr_in client_addr;
+            int client_fd = socket_io_accept_connection(loop->listen_fd, &client_addr);
+            if (client_fd < 0) continue;
+            
+            connection_t* conn = connection_mgr_add(client_fd);
+            if (!conn) {
+                close(client_fd);
+                continue;
+            }
+            
+            connection_mgr_set_state(conn, CONN_READY);
+            
+            struct epoll_event client_ev;
+            client_ev.events = EPOLLIN | EPOLLRDHUP;
+            client_ev.data.fd = client_fd;
+            if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_ADD, client_fd, &client_ev) < 0) {
+                connection_mgr_remove(client_fd);
+                close(client_fd);
+                continue;
+            }
+            
+            // Log to TUI
+            stats_record_connection();
+            tui_log(LOG_CONNECTION, "New connection from fd %d", client_fd);
+            
+        } else {
+            // Client event
+            connection_t* conn = connection_mgr_get(fd);
+            if (!conn) {
+                epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                close(fd);
+                continue;
+            }
+            
+            // Check for disconnect
+            if (events[i].events & EPOLLRDHUP) {
+                stats_record_disconnection();
+                tui_log(LOG_CONNECTION, "Client disconnected (fd %d)", fd);
+                epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                connection_mgr_remove(fd);
+                close(fd);
+                continue;
+            }
+            
+            // Validate state
+            if (!connection_mgr_is_valid_for_processing(conn)) {
+                ConnectionState state = connection_mgr_get_state(conn);
+                if (state == CONN_CLOSING || state == CONN_CLOSED) {
+                    epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                    connection_mgr_remove(fd);
+                    close(fd);
+                }
+                continue;
+            }
+            
+            // Process request
+            int result = request_handler_process(fd);
+            if (result < 0) {
+                stats_record_disconnection();
+                tui_log(LOG_CONNECTION, "Connection closed (fd %d)", fd);
+                epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                connection_mgr_remove(fd);
+                close(fd);
+            }
+        }
+    }
 }

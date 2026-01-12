@@ -1,3 +1,4 @@
+#include "../ui/tui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +10,7 @@
 
 // Handle view stocks request
 void handle_view_stocks_request(int client_socket, const packet_t* request, connection_t* connection) {
-    printf("[FEATURE] View stocks request from user %s (ID: %u)\n", connection->username, connection->user_id);
+    server_debug("[FEATURE] View stocks request from user %s (ID: %u)\n", connection->username, connection->user_id);
 
     int stock_count = 0;
     stock_t* stocks = stock_db_get_all(&stock_count);
@@ -85,6 +86,6 @@ void handle_view_stocks_request(int client_socket, const packet_t* request, conn
     free(response_body);
     stock_db_free(stocks);
 
-    printf("[FEATURE] Sent %d stocks to user %s (data format: ID,SYMBOL,NAME,BID,BID_QTY,ASK,ASK_QTY,LAST,LAST_QTY,TIMESTAMP)\n", 
+    server_debug("[FEATURE] Sent %d stocks to user %s (data format: ID,SYMBOL,NAME,BID,BID_QTY,ASK,ASK_QTY,LAST,LAST_QTY,TIMESTAMP)\n", 
            stock_count, connection->username);
 }

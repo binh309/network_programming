@@ -6,13 +6,14 @@
 #include "../network/protocol.h"
 #include "../core/connection_manager.h"
 #include "../model/error.h"
+#include "../ui/tui.h"
 
 // Handle login request
 void handle_login_request(int client_socket, const packet_t* request, connection_t* connection) {
-    printf("[LOGIN_HANDLER] Called on fd=%d\n", client_socket);
+    server_debug("[LOGIN_HANDLER] Called on fd=%d\n", client_socket);
     
     if (connection->is_logged_in) {
-        printf("[LOGIN_HANDLER] Already logged in\n");
+        server_debug("[LOGIN_HANDLER] Already logged in\n");
         send_error(client_socket, request->header.request_id, "Already logged in.");
         return;
     }
@@ -21,22 +22,22 @@ void handle_login_request(int client_socket, const packet_t* request, connection
     char username[32] = {0};
     char password[32] = {0};
 
-    printf("[LOGIN_HANDLER] Parsing body: %.50s\n", (char*)request->body);
+    server_debug("[LOGIN_HANDLER] Parsing body: %.50s\n", (char*)request->body);
     
     if (sscanf(request->body, "%31[^,],%31s", username, password) != 2) {
-        printf("[LOGIN_HANDLER] Parse failed\n");
+        server_debug("[LOGIN_HANDLER] Parse failed\n");
         send_error(client_socket, request->header.request_id, "Invalid login format. Use: USERNAME,PASSWORD");
         return;
     }
 
-    printf("[LOGIN_HANDLER] Parsed username=%s, password=%s\n", username, password);
+    server_debug("[LOGIN_HANDLER] Parsed username=%s, password=%s\n", username, password);
 
     // Lookup user in the database
     account_t* acc = account_db_lookup(username, password);
 
     if (acc) {
         // Login successful
-        printf("[LOGIN_HANDLER] ✓ Authentication successful for user %s (ID=%u)\n", 
+        server_debug("[LOGIN_HANDLER] ✓ Authentication successful for user %s (ID=%u)\n", 
                acc->username, acc->user_id);
         
         connection->is_logged_in = true;
@@ -44,20 +45,23 @@ void handle_login_request(int client_socket, const packet_t* request, connection
         strncpy(connection->username, acc->username, sizeof(connection->username) - 1);
         connection->username[sizeof(connection->username) - 1] = '\0';
         
-        printf("[AUTH] User '%s' (ID: %u) logged in from socket %d\n", acc->username, acc->user_id, client_socket);
+        server_debug("[AUTH] User '%s' (ID: %u) logged in from socket %d\n", acc->username, acc->user_id, client_socket);
 
         packet_t response;
         char response_body[128];
         snprintf(response_body, sizeof(response_body), "Login successful. Welcome, %s!", acc->username);
-        printf("[LOGIN_HANDLER] → Sending success response\n");
+        server_debug("[LOGIN_HANDLER] → Sending success response\n");
         create_packet(&response, request->header.request_id, SMSG_LOGIN_SUCCESS, response_body);
         send_packet(client_socket, &response);
-        printf("[LOGIN_HANDLER] Success response sent\n");
+        server_debug("[LOGIN_HANDLER] Success response sent\n");
+        
+        tui_log(LOG_SUCCESS, "User '%s' logged in (socket %d)", acc->username, client_socket);
 
         account_db_free(acc); // Free the copied account struct
     } else {
         // Login failed
-        printf("[LOGIN_HANDLER] ✗ Authentication failed for user %s\n", username);
+        server_debug("[LOGIN_HANDLER] ✗ Authentication failed for user %s\n", username);
+        tui_log(LOG_WARNING, "Login failed for '%s' (socket %d)", username, client_socket);
         send_error(client_socket, request->header.request_id, "Invalid username or password.");
     }
 }

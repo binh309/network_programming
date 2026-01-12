@@ -43,4 +43,14 @@ void event_loop_run(event_loop_ctx_t* loop);
  */
 void event_loop_shutdown(event_loop_ctx_t* loop);
 
+/**
+ * @brief Single step of the event loop
+ *
+ * Process events once with given timeout (for threaded operation)
+ *
+ * @param loop The event loop context
+ * @param timeout_ms Timeout in milliseconds
+ */
+void event_loop_step(event_loop_ctx_t* loop, int timeout_ms);
+
 #endif // EVENT_LOOP_H

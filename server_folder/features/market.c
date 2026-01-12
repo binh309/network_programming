@@ -8,6 +8,7 @@
 #include <signal.h>
 #include "market.h"
 #include "../data/stock_db.h"
+#include "../ui/tui.h"
 
 #define MARKET_UPDATE_INTERVAL_S 30 // seconds
 
@@ -44,20 +45,20 @@ static void update_stock_price(stock_t* stock) {
 
     // Update the stock in the database
     if (stock_db_update_price(stock->stock_id, new_bid, new_ask, new_last_price)) {
-        printf("[MARKET] Updated %s: Bid: %.2f, Ask: %.2f, Last: %.2f\n",
-               stock->symbol, new_bid, new_ask, new_last_price);
+        // Only log to TUI, don't use printf to avoid breaking ncurses
+        tui_log(LOG_INFO, "[MARKET] %s: Bid:%.2f Ask:%.2f", stock->symbol, new_bid, new_ask);
     }
 }
 
 // Function to gracefully shutdown market thread
 void market_stop(void) {
     market_running = 0;
-    printf("[MARKET] Shutdown signal sent to market thread\n");
+    // Don't log here - TUI may already be shut down
 }
 
 // Market update thread
 void* market_update_thread(void* arg __attribute__((unused))) {
-    printf("[MARKET] Market simulation thread started.\n");
+    tui_log(LOG_INFO, "Market simulation thread started");
     srand(time(NULL));
 
     while (market_running) {
@@ -74,6 +75,6 @@ void* market_update_thread(void* arg __attribute__((unused))) {
         sleep(MARKET_UPDATE_INTERVAL_S);
     }
 
-    printf("[MARKET] Market simulation thread shutting down\n");
+    tui_log(LOG_INFO, "Market simulation thread shutting down");
     return NULL;
 }

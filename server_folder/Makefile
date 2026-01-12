@@ -1,9 +1,9 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -I.
-LDFLAGS = -lm -lpthread
+LDFLAGS = -lm -lpthread -lncurses
 
 # Source files
-SERVER_SOURCES = core/server.c core/event_loop.c core/connection_manager.c core/connection_hash.c core/request_handler.c core/portfolio_manager.c data/account_db.c data/stock_db.c data/portfolio_db.c data/transaction_db.c features/view_stocks.c features/dispatcher.c features/market.c features/buy_stock.c features/sell_stock.c features/see_balance.c features/register.c features/login.c features/see_my_stocks.c network/packet.c model/error.c network/socket_io.c network/network_send.c network/network_receive.c network/packet_parser.c network/packet_builder.c model/portfolio.c
+SERVER_SOURCES = core/server.c core/event_loop.c core/connection_manager.c core/connection_hash.c core/request_handler.c core/portfolio_manager.c data/account_db.c data/stock_db.c data/portfolio_db.c data/transaction_db.c features/view_stocks.c features/dispatcher.c features/market.c features/buy_stock.c features/sell_stock.c features/see_balance.c features/register.c features/login.c features/see_my_stocks.c network/packet.c model/error.c network/socket_io.c network/network_send.c network/network_receive.c network/packet_parser.c network/packet_builder.c model/portfolio.c ui/tui.c ui/stats.c ui/admin.c
 
 # Object files
 SERVER_OBJECTS = $(SERVER_SOURCES:.c=.o)

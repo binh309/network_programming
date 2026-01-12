@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "buy_stock.h"
 #include "../data/stock_db.h"
 #include "../data/account_db.h"
@@ -10,12 +11,18 @@
 #include "../network/packet.h"
 #include "../network/protocol.h"
 #include "../model/error.h"
+#include "../ui/tui.h"
+#include "../ui/stats.h"
 
 #define MAX_SHARES_PER_STOCK 500
 #define MAX_TOTAL_SHARES 5000
 
 // Handle buy stock request
 void handle_buy_stock_request(int client_socket, const packet_t* request, connection_t* connection) {
+    // Start timing for latency measurement
+    struct timespec start_time, end_time;
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    
     // 1. Parse request: "STOCK_ID,QUANTITY,PRICE,TYPE" (TYPE is LIMIT or MARKET)
     uint16_t stock_id;
     uint32_t quantity;
@@ -27,7 +34,7 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
         return;
     }
     
-    printf("[BUY] User %u wants to buy %u of stock %hu at %.2f (%s)\n", 
+    server_debug("[BUY] User %u wants to buy %u of stock %hu at %.2f (%s)\n", 
            connection->user_id, quantity, stock_id, limit_price, type);
 
     // ========== CRITICAL FIX #4: INPUT VALIDATION ==========
@@ -91,7 +98,7 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
         execution_price = market_ask_price;
     }
 
-    printf("[BUY] Execution price: %.2f (Market ask: %.2f, Client limit: %.2f)\n",
+    server_debug("[BUY] Execution price: %.2f (Market ask: %.2f, Client limit: %.2f)\n",
            execution_price, market_ask_price, limit_price);
 
     double total_cost = quantity * execution_price;
@@ -103,6 +110,11 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
 
     // 3. Validate order
     if (user_balance < total_cost) {
+        clock_gettime(CLOCK_MONOTONIC, &end_time);
+        double latency_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
+                            (end_time.tv_nsec - start_time.tv_nsec) / 1e6;
+        stats_record_failed_order(latency_ms);
+        tui_log(LOG_WARNING, "BUY REJECTED: Insufficient balance for %s", connection->username);
         send_error(client_socket, request->header.request_id, "Insufficient balance.");
         stock_db_free(stock);
         // NOTE: Don't free portfolio - it's managed by portfolio_manager
@@ -120,6 +132,11 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
         }
     }
     if (current_holding + quantity > MAX_SHARES_PER_STOCK) {
+        clock_gettime(CLOCK_MONOTONIC, &end_time);
+        double latency_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
+                            (end_time.tv_nsec - start_time.tv_nsec) / 1e6;
+        stats_record_failed_order(latency_ms);
+        tui_log(LOG_WARNING, "BUY REJECTED: Risk limit for %s", connection->username);
         send_error(client_socket, request->header.request_id, "Risk limit: Exceeds max shares per stock.");
         stock_db_free(stock);
         // NOTE: Don't free portfolio - it's managed by portfolio_manager
@@ -134,6 +151,11 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
         }
     }
     if (total_shares + quantity > MAX_TOTAL_SHARES) {
+        clock_gettime(CLOCK_MONOTONIC, &end_time);
+        double latency_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
+                            (end_time.tv_nsec - start_time.tv_nsec) / 1e6;
+        stats_record_failed_order(latency_ms);
+        tui_log(LOG_WARNING, "BUY REJECTED: Risk limit for %s", connection->username);
         send_error(client_socket, request->header.request_id, "Risk limit: Exceeds max total shares.");
         stock_db_free(stock);
         // NOTE: Don't free portfolio - it's managed by portfolio_manager
@@ -153,14 +175,14 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
     //
     // Fix: Use stock_db_atomic_buy() which locks, checks, and updates atomically
     
-    printf("[BUY] Using atomic stock operation to prevent race condition...\n");
+    server_debug("[BUY] Using atomic stock operation to prevent race condition...\n");
 
     // ========== CRITICAL FIX #3: TRANSACTION ROLLBACK ==========
     // Save original state so we can rollback if any operation fails
     double old_balance = user_balance;
     
-    printf("[BUY] Transaction state saved for rollback if needed\n");
-    printf("[BUY]   Old balance: %.2f\n", old_balance);
+    server_debug("[BUY] Transaction state saved for rollback if needed\n");
+    server_debug("[BUY]   Old balance: %.2f\n", old_balance);
 
     // 4. Process order - ATOMIC OPERATIONS
     // Step 1: Update balance
@@ -171,54 +193,62 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
         // NOTE: Don't free portfolio - it's managed by portfolio_manager
         return;
     }
-    printf("[BUY] Step 1 OK: Balance updated (%.2f -> %.2f)\n", 
+    server_debug("[BUY] Step 1 OK: Balance updated (%.2f -> %.2f)\n", 
            old_balance, user_balance - total_cost);
 
     // Step 2: Update portfolio
     if (!portfolio_db_add_holding(connection->user_id, stock_id, quantity, execution_price)) {
         // ROLLBACK: Undo balance update
-        printf("[BUY] Step 2 FAILED: Portfolio update failed. Rolling back...\n");
+        server_debug("[BUY] Step 2 FAILED: Portfolio update failed. Rolling back...\n");
         account_db_update_balance(connection->user_id, old_balance);
-        printf("[BUY] Rollback: Balance restored to %.2f\n", old_balance);
+        server_debug("[BUY] Rollback: Balance restored to %.2f\n", old_balance);
         send_error(client_socket, request->header.request_id, 
                   "Server error: Could not update portfolio. Transaction rolled back.");
         stock_db_free(stock);
         // NOTE: Don't free portfolio - it's managed by portfolio_manager
         return;
     }
-    printf("[BUY] Step 2 OK: Portfolio updated (+%u shares)\n", quantity);
+    server_debug("[BUY] Step 2 OK: Portfolio updated (+%u shares)\n", quantity);
 
     // Step 3: Update stock volume using ATOMIC operation (TOCTOU FIX)
     uint32_t new_volume;
     if (!stock_db_atomic_buy(stock_id, quantity, &new_volume)) {
         // ROLLBACK: Undo balance and portfolio updates
-        printf("[BUY] Step 3 FAILED: Atomic stock buy failed. Rolling back...\n");
+        server_debug("[BUY] Step 3 FAILED: Atomic stock buy failed. Rolling back...\n");
         account_db_update_balance(connection->user_id, old_balance);
         portfolio_db_remove_holding(connection->user_id, stock_id, quantity);
-        printf("[BUY] Rollback: Balance restored, portfolio reverted\n");
+        server_debug("[BUY] Rollback: Balance restored, portfolio reverted\n");
         send_error(client_socket, request->header.request_id, 
                   "Server error: Insufficient stock or update failed. Transaction rolled back.");
         stock_db_free(stock);
         // NOTE: Don't free portfolio - it's managed by portfolio_manager
         return;
     }
-    printf("[BUY] Step 3 OK: Stock volume updated atomically (new volume: %u)\n", new_volume);
+    server_debug("[BUY] Step 3 OK: Stock volume updated atomically (new volume: %u)\n", new_volume);
 
     // Step 4: Record transaction (audit trail)
     // Note: This doesn't affect user-facing state, so failure here doesn't require rollback
     uint32_t order_id = transaction_db_record(connection->user_id, TRANSACTION_BUY, 
                                               stock_id, quantity, execution_price);
     if (order_id == (uint32_t)-1) {
-        printf("[BUY] WARNING: Transaction recording failed (audit trail)\n");
+        server_debug("[BUY] WARNING: Transaction recording failed (audit trail)\n");
         // Don't rollback the entire order for audit failure
         // But notify the user
-        printf("[BUY] User %u order completed but audit logging failed\n", connection->user_id);
+        server_debug("[BUY] User %u order completed but audit logging failed\n", connection->user_id);
     }
-    printf("[BUY] Step 4 OK: Transaction recorded (Order ID: %u)\n", order_id);
+    server_debug("[BUY] Step 4 OK: Transaction recorded (Order ID: %u)\n", order_id);
 
     // CRITICAL FIX: Reload portfolio in portfolio_manager to sync with portfolio_db
     // This ensures the next request sees the updated holdings
     portfolio_mgr_reload_user(connection->user_id);
+
+    // Record stats for TUI with actual latency and trade value
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    double latency_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
+                        (end_time.tv_nsec - start_time.tv_nsec) / 1e6;
+    double trade_value = quantity * execution_price;
+    stats_record_order(true, latency_ms, stock_id, connection->user_id, trade_value);
+    tui_log(LOG_SUCCESS, "BUY %u %s @ $%.2f by %s", quantity, stock->symbol, execution_price, connection->username);
 
     // 5. Send response with ACTUAL execution details (not client-provided price)
     char success_msg[256];
@@ -230,8 +260,8 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
     create_packet(&response, request->header.request_id, SMSG_BUY_STOCK_SUCCESS, success_msg);
     send_packet(client_socket, &response);
     
-    printf("[BUY] ✓ SUCCESS: User %u bought %u %s\n", connection->user_id, quantity, stock->symbol);
-    printf("[BUY] Execution: %.2f per share, Total: $%.2f\n", execution_price, total_cost);
+    server_debug("[BUY] ✓ SUCCESS: User %u bought %u %s\n", connection->user_id, quantity, stock->symbol);
+    server_debug("[BUY] Execution: %.2f per share, Total: $%.2f\n", execution_price, total_cost);
 
     stock_db_free(stock);
     // NOTE: Don't free portfolio - it's managed by portfolio_manager

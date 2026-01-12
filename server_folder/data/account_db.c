@@ -1,3 +1,4 @@
+#include "ui/tui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,7 +100,7 @@ bool account_db_init(const char* db_path) {
     }
 
     fclose(fp);
-    printf("[DB] Accounts database initialized with %d accounts\n", num_accounts);
+    server_debug("[DB] Accounts database initialized with %d accounts\n", num_accounts);
     return true;
 }
 
@@ -162,7 +163,7 @@ bool account_db_add(const char* username, const char* password) {
     pthread_mutex_unlock(&db_mutex);
 
     if (success) {
-        printf("[DB] Added new user: %s\n", username);
+        server_debug("[DB] Added new user: %s\n", username);
     }
 
     return success;
@@ -244,7 +245,7 @@ bool account_db_update_balance(uint32_t user_id, double new_balance) {
         accounts[found_idx].balance = new_balance;
         if (persist_db()) {
             success = true;
-            printf("[DB] Updated balance for user %u to %.2f\n", user_id, new_balance);
+            server_debug("[DB] Updated balance for user %u to %.2f\n", user_id, new_balance);
         }
     } else {
         fprintf(stderr, "[DB] User ID %u not found for balance update\n", user_id);
