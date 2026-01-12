@@ -52,10 +52,13 @@ int main(int argc, char* argv[]) {
     event_loop_run(loop);
 
     // 6. Cleanup
+    printf("[SERVER] Initiating shutdown...\n");
+    market_stop();  // Stop market thread before destroying other resources
     event_loop_shutdown(loop);
     connection_mgr_destroy();
     portfolio_mgr_cleanup();
     portfolio_db_destroy();
+    printf("[SERVER] Shutdown complete\n");
 
     return 0;
 }

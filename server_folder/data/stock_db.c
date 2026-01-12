@@ -85,7 +85,18 @@ bool stock_db_init(const char* db_path) {
         }
         s->name[sizeof(s->name) - 1] = '\0';
         
-        printf("[DB] Loaded stock #%d: %s (%s) - Last: $%.2f\n", s->stock_id, s->symbol, s->name, s->last_price);
+        // Initialize order book quantities (realistic simulation)
+        // Bid side: typically 60-80% of volume
+        s->bid_quantity = (uint32_t)(s->volume * 0.7);
+        // Ask side: remaining volume
+        s->ask_quantity = s->volume - s->bid_quantity;
+        // Last trade quantity: smaller random amount
+        s->last_quantity = (uint32_t)(s->volume * 0.1) + 100;
+        // Timestamp: now
+        s->last_update_time = time(NULL);
+        
+        printf("[DB] Loaded stock #%d: %s (%s) - Last: $%.2f (Bid qty: %u, Ask qty: %u)\n", 
+               s->stock_id, s->symbol, s->name, s->last_price, s->bid_quantity, s->ask_quantity);
         stock_count++;
     }
 
@@ -192,6 +203,16 @@ bool stock_db_update_price(uint16_t stock_id, double new_bid, double new_ask, do
         stocks[found_idx].best_bid = new_bid;
         stocks[found_idx].best_ask = new_ask;
         stocks[found_idx].last_price = new_last;
+        
+        // Update order book quantities (simulate realistic market)
+        // Bid side gets ~60-80% of volume
+        stocks[found_idx].bid_quantity = (uint32_t)(stocks[found_idx].volume * 0.7);
+        stocks[found_idx].ask_quantity = stocks[found_idx].volume - stocks[found_idx].bid_quantity;
+        // Last trade quantity: random amount
+        stocks[found_idx].last_quantity = (uint32_t)(stocks[found_idx].volume * 0.1) + 50;
+        // Update timestamp to now
+        stocks[found_idx].last_update_time = time(NULL);
+        
         success = true; 
         // No need to persist on every price update for performance reasons
     }
@@ -218,6 +239,113 @@ bool stock_db_update_volume(uint16_t stock_id, uint32_t new_volume) {
         // Persist changes to disk after a volume change (trade)
         if (persist_db()) {
             success = true;
+        }
+    }
+
+    pthread_mutex_unlock(&db_mutex);
+    return success;
+}
+
+// ========== TOCTOU FIX: Atomic check-and-update functions ==========
+
+/**
+ * @brief Atomic buy operation - checks and deducts volume in one lock
+ * 
+ * This prevents the TOCTOU race condition where:
+ *   Thread A: reads volume=5, checks 5>=3? YES
+ *   Thread B: reads volume=5, checks 5>=4? YES  
+ *   Thread A: updates volume = 5-3 = 2
+ *   Thread B: updates volume = 2-4 = -2 (WRONG!)
+ * 
+ * With atomic operation:
+ *   Thread A: lock, read volume=5, check 5>=3? YES, update to 2, unlock
+ *   Thread B: lock (waits), read volume=2, check 2>=4? NO, return false, unlock
+ * 
+ * @param stock_id The stock to buy
+ * @param quantity Number of shares to buy
+ * @param new_volume Output: the new volume after deduction (if successful)
+ * @return true if successful, false if insufficient volume
+ */
+bool stock_db_atomic_buy(uint16_t stock_id, uint32_t quantity, uint32_t* new_volume) {
+    if (stock_id == 0 || quantity == 0) return false;
+    
+    bool success = false;
+    pthread_mutex_lock(&db_mutex);
+
+    // Find stock
+    int found_idx = -1;
+    for (int i = 0; i < stock_count; i++) {
+        if (stocks[i].stock_id == stock_id) {
+            found_idx = i;
+            break;
+        }
+    }
+
+    if (found_idx != -1) {
+        // ATOMIC: Check AND update while holding the lock
+        if (stocks[found_idx].volume >= quantity) {
+            stocks[found_idx].volume -= quantity;
+            if (new_volume) {
+                *new_volume = stocks[found_idx].volume;
+            }
+            // Persist to disk
+            if (persist_db()) {
+                success = true;
+                printf("[STOCK_DB] Atomic buy: stock %u, qty %u, new_volume %u\n", 
+                       stock_id, quantity, stocks[found_idx].volume);
+            } else {
+                // Rollback if persist failed
+                stocks[found_idx].volume += quantity;
+                printf("[STOCK_DB] Atomic buy FAILED: persist error, rolled back\n");
+            }
+        } else {
+            printf("[STOCK_DB] Atomic buy FAILED: insufficient volume (%u < %u)\n", 
+                   stocks[found_idx].volume, quantity);
+        }
+    }
+
+    pthread_mutex_unlock(&db_mutex);
+    return success;
+}
+
+/**
+ * @brief Atomic sell operation - adds volume back to market
+ * 
+ * @param stock_id The stock to sell
+ * @param quantity Number of shares to add back to market
+ * @param new_volume Output: the new volume after addition (if successful)
+ * @return true if successful
+ */
+bool stock_db_atomic_sell(uint16_t stock_id, uint32_t quantity, uint32_t* new_volume) {
+    if (stock_id == 0 || quantity == 0) return false;
+    
+    bool success = false;
+    pthread_mutex_lock(&db_mutex);
+
+    // Find stock
+    int found_idx = -1;
+    for (int i = 0; i < stock_count; i++) {
+        if (stocks[i].stock_id == stock_id) {
+            found_idx = i;
+            break;
+        }
+    }
+
+    if (found_idx != -1) {
+        // Add volume back (selling returns shares to market)
+        stocks[found_idx].volume += quantity;
+        if (new_volume) {
+            *new_volume = stocks[found_idx].volume;
+        }
+        // Persist to disk
+        if (persist_db()) {
+            success = true;
+            printf("[STOCK_DB] Atomic sell: stock %u, qty %u, new_volume %u\n", 
+                   stock_id, quantity, stocks[found_idx].volume);
+        } else {
+            // Rollback if persist failed
+            stocks[found_idx].volume -= quantity;
+            printf("[STOCK_DB] Atomic sell FAILED: persist error, rolled back\n");
         }
     }
 

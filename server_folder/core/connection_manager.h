@@ -50,6 +50,7 @@ typedef struct {
     
     // === Metadata ===
     time_t connection_time;             // When this connection was established
+    time_t last_activity_time;          // Last time this connection had activity (for idle timeout)
 } connection_t;
 
 /**
@@ -192,5 +193,23 @@ int connection_mgr_is_valid_for_processing(connection_t* conn);
  * @return String like "READY", "CLOSED", etc.
  */
 const char* connection_mgr_state_name(ConnectionState state);
+
+/**
+ * @brief Update the last activity timestamp for a connection
+ *
+ * Call this when the connection receives data or processes a request
+ *
+ * @param conn The connection
+ */
+void connection_mgr_update_activity(connection_t* conn);
+
+/**
+ * @brief Check if a connection has been idle for more than timeout seconds
+ *
+ * @param conn The connection
+ * @param timeout_seconds Maximum seconds of inactivity allowed
+ * @return 1 if idle, 0 if recently active
+ */
+int connection_mgr_is_idle(connection_t* conn, int timeout_seconds);
 
 #endif // CONNECTION_MANAGER_H

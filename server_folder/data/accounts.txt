@@ -1,3 +1,4 @@
-1,admin,password123,8476.43
-2,trader_joe,secure_pass,5000.50
-3,test_user,test,100.00
+1,admin,password123,4542.79
+2,user2,pass456,10000.00
+3,user3,pass789,7500.50
+4,user4,pass000,3200.75

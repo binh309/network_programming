@@ -61,9 +61,16 @@ dispatcher_status_t dispatcher_handle_message(int client_socket, const packet_t*
             printf("[DISPATCHER] → Routing to LOGOUT handler\n");
             // Handle logout: clear session and send response
             if (connection) {
+                uint32_t user_id = connection->user_id;
                 connection->is_logged_in = false;
                 connection->user_id = 0;
                 memset(connection->username, 0, sizeof(connection->username));
+                
+                // Clear user's portfolio from memory on logout
+                if (user_id > 0) {
+                    extern void portfolio_mgr_clear_user(uint32_t user_id);
+                    portfolio_mgr_clear_user(user_id);
+                }
             }
             
             packet_t response;

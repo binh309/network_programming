@@ -5,10 +5,14 @@
 #include <math.h>
 #include <pthread.h>
 #include <time.h>
+#include <signal.h>
 #include "market.h"
 #include "../data/stock_db.h"
 
 #define MARKET_UPDATE_INTERVAL_S 30 // seconds
+
+// Global flag to gracefully shutdown market thread
+static volatile sig_atomic_t market_running = 1;
 
 // Returns a random float between -1 and 1
 static double random_walk() {
@@ -45,12 +49,18 @@ static void update_stock_price(stock_t* stock) {
     }
 }
 
+// Function to gracefully shutdown market thread
+void market_stop(void) {
+    market_running = 0;
+    printf("[MARKET] Shutdown signal sent to market thread\n");
+}
+
 // Market update thread
 void* market_update_thread(void* arg __attribute__((unused))) {
     printf("[MARKET] Market simulation thread started.\n");
     srand(time(NULL));
 
-    while (1) {
+    while (market_running) {
         int stock_count = 0;
         stock_t* all_stocks = stock_db_get_all(&stock_count);
 
@@ -64,5 +74,6 @@ void* market_update_thread(void* arg __attribute__((unused))) {
         sleep(MARKET_UPDATE_INTERVAL_S);
     }
 
+    printf("[MARKET] Market simulation thread shutting down\n");
     return NULL;
 }

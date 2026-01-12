@@ -60,19 +60,34 @@ void handle_response(const packet_t* response) {
 
         case SMSG_VIEW_STOCKS_DATA:
             printf("\n========== AVAILABLE STOCKS ==========\n");
-            printf("%-6s %-10s %-20s %-10s %-10s %-10s\n", "ID", "SYMBOL", "NAME", "BID", "ASK", "LAST");
-            printf("----------------------------------------------------------------\n");
+            printf("%-6s %-10s %-20s %-12s %-10s %-12s %-10s %-10s\n", 
+                   "ID", "SYMBOL", "NAME", "BID (QTY)", "ASK (QTY)", "LAST (QTY)", "AGE(s)", "SPREAD");
+            printf("------------------------------------------------------------------------------------------------\n");
             char* stock_str = strtok(body_copy, ";");
             while (stock_str != NULL) {
                 uint16_t id;
                 char symbol[16], name[32];
                 double bid, ask, last;
-                if (sscanf(stock_str, "%hu,%15[^,],%31[^,],%lf,%lf,%lf", &id, symbol, name, &bid, &ask, &last) == 6) {
-                    printf("%-6u %-10s %-20s %-10.2f %-10.2f %-10.2f\n", id, symbol, name, bid, ask, last);
+                uint32_t bid_qty, ask_qty, last_qty;
+                long timestamp;
+                
+                // NEW FORMAT: ID,SYMBOL,NAME,BID,BID_QTY,ASK,ASK_QTY,LAST,LAST_QTY,TIMESTAMP
+                if (sscanf(stock_str, "%hu,%15[^,],%31[^,],%lf,%u,%lf,%u,%lf,%u,%ld", 
+                          &id, symbol, name, &bid, &bid_qty, &ask, &ask_qty, &last, &last_qty, &timestamp) == 10) {
+                    
+                    // Calculate data age
+                    time_t now = time(NULL);
+                    long data_age = now - timestamp;
+                    
+                    // Calculate spread
+                    double spread = ask - bid;
+                    
+                    printf("%-6u %-10s %-20s %.2f(%5u) %.2f(%5u) %.2f(%5u) %6ld  %6.2f\n", 
+                           id, symbol, name, bid, bid_qty, ask, ask_qty, last, last_qty, data_age, spread);
                 }
                 stock_str = strtok(NULL, ";");
             }
-            printf("================================================================\n\n");
+            printf("------------------------------------------------------------------------------------------------\n\n");
             break;
 
         case SMSG_VIEW_MY_STOCKS_DATA:

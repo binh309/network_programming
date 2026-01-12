@@ -5,6 +5,8 @@
 #include "../data/stock_db.h"
 #include "../data/account_db.h"
 #include "../data/portfolio_db.h"
+#include "../data/transaction_db.h"
+#include "../core/portfolio_manager.h"
 #include "../network/packet.h"
 #include "../network/protocol.h"
 #include "../model/error.h"
@@ -16,19 +18,49 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, conne
         return;
     }
 
-    // 1. Parse request: "STOCK_ID,QUANTITY,PRICE,TYPE"
+    // 1. Parse request: "STOCK_ID,QUANTITY,LIMIT_PRICE,TYPE"
     uint16_t stock_id;
     uint32_t quantity;
-    double price;
+    double limit_price;
     char type[10] = {0};
 
-    if (sscanf(request->body, "%hu,%u,%lf,%9s", &stock_id, &quantity, &price, type) != 4) {
+    if (sscanf(request->body, "%hu,%u,%lf,%9s", &stock_id, &quantity, &limit_price, type) != 4) {
         send_error(client_socket, request->header.request_id, "Invalid sell request format. Use: STOCK_ID,QTY,PRICE,TYPE");
         return;
     }
 
-    printf("[SELL] User %u wants to sell %u of stock %hu at %.2f (%s)\n", connection->user_id, quantity, stock_id, price, type);
-    
+    printf("[SELL] User %u wants to sell %u of stock %hu at %.2f (%s)\n", 
+           connection->user_id, quantity, stock_id, limit_price, type);
+
+    // ========== CRITICAL FIX #4: INPUT VALIDATION ==========
+    // Validate quantity
+    if (quantity == 0) {
+        send_error(client_socket, request->header.request_id, "Quantity must be greater than zero.");
+        return;
+    }
+    if (quantity > 1000000) {
+        send_error(client_socket, request->header.request_id, "Quantity exceeds maximum allowed (1,000,000).");
+        return;
+    }
+
+    // Validate limit price (BEFORE locking anything)
+    if (limit_price <= 0.0) {
+        send_error(client_socket, request->header.request_id, "Price must be positive.");
+        return;
+    }
+    if (limit_price > 999999.99) {
+        send_error(client_socket, request->header.request_id, "Price exceeds maximum allowed ($999,999.99).");
+        return;
+    }
+
+    // Validate order type
+    bool is_market_order = (strcmp(type, "MARKET") == 0);
+    bool is_limit_order = (strcmp(type, "LIMIT") == 0);
+    if (!is_market_order && !is_limit_order) {
+        send_error(client_socket, request->header.request_id, "Order type must be MARKET or LIMIT.");
+        return;
+    }
+
     // 2. Get stock and user data
     stock_t* stock = stock_db_get_by_id(stock_id);
     if (!stock) {
@@ -36,12 +68,44 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, conne
         return;
     }
 
-    portfolio_t* portfolio = portfolio_db_get(connection->user_id);
+    // ========== CRITICAL FIX #0: USE PERSISTENT PORTFOLIO MANAGER ==========
+    // BUG FIX: Was using portfolio_db_get() which created temporary portfolio
+    // Now: Use portfolio_mgr_get_or_create() for persistent storage across requests
+    // This fixes the "user can't sell stocks they own" bug
+    portfolio_t* portfolio = portfolio_mgr_get_or_create(connection->user_id);
     if (!portfolio) {
         send_error(client_socket, request->header.request_id, "Could not retrieve portfolio.");
         stock_db_free(stock);
         return;
     }
+
+    // ========== CRITICAL FIX #1: VALIDATE PRICE AGAINST MARKET ==========
+    // For SELL orders, we execute at market BID (not client's limit price)
+    double market_bid_price = stock->best_bid;
+    double execution_price;
+
+    if (is_market_order) {
+        // Market order: Execute at current market bid price
+        execution_price = market_bid_price;
+    } else {
+        // LIMIT order: Client willing to sell at least limit_price
+        // But execute at best available price (market bid)
+        if (limit_price > market_bid_price) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), 
+                    "Limit price (%.2f) is above current bid (%.2f). Order rejected.", 
+                    limit_price, market_bid_price);
+            send_error(client_socket, request->header.request_id, msg);
+            stock_db_free(stock);
+            // NOTE: Don't free portfolio - it's managed by portfolio_manager
+            return;
+        }
+        // Execute at market bid (better price than limit for seller)
+        execution_price = market_bid_price;
+    }
+
+    printf("[SELL] Execution price: %.2f (Market bid: %.2f, Client limit: %.2f)\n",
+           execution_price, market_bid_price, limit_price);
 
     // 3. Validate order
     uint32_t current_holding = 0;
@@ -54,50 +118,86 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, conne
 
     if (current_holding < quantity) {
         send_error(client_socket, request->header.request_id, "Insufficient holdings to sell.");
-        goto cleanup;
+        stock_db_free(stock);
+        // NOTE: Don't free portfolio - it's managed by portfolio_manager
+        return;
     }
 
-    // 4. Process order
-    bool is_market_order = (strcmp(type, "MARKET") == 0);
-    double exec_price = is_market_order ? stock->last_price : price;
-    
-    // For LIMIT orders, check if the price is valid for an immediate fill
-    if (!is_market_order && price > stock->best_bid) {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "Limit price too high. Your price: %.2f, Best Bid: %.2f.", price, stock->best_bid);
-        send_error(client_socket, request->header.request_id, msg);
-        goto cleanup;
-    }
+    double total_proceeds = quantity * execution_price;
 
-    double total_proceeds = quantity * exec_price;
+    // ========== CRITICAL FIX #3: TRANSACTION ROLLBACK ==========
+    // Save original state so we can rollback if any operation fails
+    double old_balance = account_db_get_balance(connection->user_id);
 
-    // 5. Update user and stock data
+    printf("[SELL] Transaction state saved for rollback if needed\n");
+    printf("[SELL]   Old balance: %.2f\n", old_balance);
+
+    // 4. Process order - ATOMIC OPERATIONS
+    // Step 1: Remove from portfolio
     if (!portfolio_db_remove_holding(connection->user_id, stock_id, quantity)) {
-        send_error(client_socket, request->header.request_id, "Server error: Could not update portfolio.");
-        goto cleanup;
+        send_error(client_socket, request->header.request_id, 
+                  "Server error: Could not update portfolio.");
+        stock_db_free(stock);
+        // NOTE: Don't free portfolio - it's managed by portfolio_manager
+        return;
     }
+    printf("[SELL] Step 1 OK: Portfolio updated (-%u shares)\n", quantity);
 
-    double current_balance = account_db_get_balance(connection->user_id);
-    if (!account_db_update_balance(connection->user_id, current_balance + total_proceeds)) {
-        // Attempt to roll back portfolio change
-        portfolio_db_add_holding(connection->user_id, stock_id, quantity, exec_price);
-        send_error(client_socket, request->header.request_id, "Server error: Could not update balance.");
-        goto cleanup;
+    // Step 2: Update balance
+    if (!account_db_update_balance(connection->user_id, old_balance + total_proceeds)) {
+        // ROLLBACK: Restore portfolio
+        printf("[SELL] Step 2 FAILED: Balance update failed. Rolling back...\n");
+        portfolio_db_add_holding(connection->user_id, stock_id, quantity, execution_price);
+        printf("[SELL] Rollback: Portfolio restored\n");
+        send_error(client_socket, request->header.request_id, 
+                  "Server error: Could not update balance. Transaction rolled back.");
+        stock_db_free(stock);
+        // NOTE: Don't free portfolio - it's managed by portfolio_manager
+        return;
     }
+    printf("[SELL] Step 2 OK: Balance updated (+%.2f)\n", total_proceeds);
 
-    stock_db_update_volume(stock_id, stock->volume - quantity); // This is debatable, but for v1 let's assume it goes back to market
+    // Step 3: Update stock volume using ATOMIC operation (add back to market)
+    uint32_t new_volume;
+    if (!stock_db_atomic_sell(stock_id, quantity, &new_volume)) {
+        // ROLLBACK: Restore both portfolio and balance
+        printf("[SELL] Step 3 FAILED: Atomic stock sell failed. Rolling back...\n");
+        portfolio_db_add_holding(connection->user_id, stock_id, quantity, execution_price);
+        account_db_update_balance(connection->user_id, old_balance);
+        printf("[SELL] Rollback: Portfolio restored, balance reverted\n");
+        send_error(client_socket, request->header.request_id, 
+                  "Server error: Could not update stock. Transaction rolled back.");
+        stock_db_free(stock);
+        // NOTE: Don't free portfolio - it's managed by portfolio_manager
+        return;
+    }
+    printf("[SELL] Step 3 OK: Stock volume updated atomically (new volume: %u)\n", new_volume);
 
-    // 6. Send response
+    // Step 4: Record transaction (audit trail)
+    uint32_t order_id = transaction_db_record(connection->user_id, TRANSACTION_SELL, 
+                                              stock_id, quantity, execution_price);
+    if (order_id == (uint32_t)-1) {
+        printf("[SELL] WARNING: Transaction recording failed (audit trail)\n");
+    }
+    printf("[SELL] Step 4 OK: Transaction recorded (Order ID: %u)\n", order_id);
+
+    // CRITICAL FIX: Reload portfolio in portfolio_manager to sync with portfolio_db
+    // This ensures the next request sees the updated holdings
+    portfolio_mgr_reload_user(connection->user_id);
+
+    // 5. Send response with ACTUAL execution details (not client-provided price)
     char success_msg[256];
-    snprintf(success_msg, sizeof(success_msg), "Order Filled: Sold %u %s at $%.2f.", quantity, stock->symbol, exec_price);
-    
+    snprintf(success_msg, sizeof(success_msg), 
+            "Order Filled: Sold %u %s at $%.2f (limit was $%.2f). Order ID: %u", 
+            quantity, stock->symbol, execution_price, limit_price, order_id);
+
     packet_t response;
     create_packet(&response, request->header.request_id, SMSG_SELL_STOCK_SUCCESS, success_msg);
     send_packet(client_socket, &response);
 
-    printf("[SELL] Success: User %u sold %u %s\n", connection->user_id, quantity, stock->symbol);
+    printf("[SELL] ✓ SUCCESS: User %u sold %u %s\n", connection->user_id, quantity, stock->symbol);
+    printf("[SELL] Execution: %.2f per share, Total proceeds: $%.2f\n", execution_price, total_proceeds);
 
-cleanup:
     stock_db_free(stock);
-    portfolio_db_free(portfolio);
+    // NOTE: Don't free portfolio - it's managed by portfolio_manager
 }

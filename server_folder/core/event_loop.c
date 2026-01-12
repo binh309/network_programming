@@ -162,6 +162,17 @@ void event_loop_run(event_loop_ctx_t* loop) {
                     continue;
                 }
 
+                // Check for idle connections (timeout after 5 minutes)
+                #define IDLE_TIMEOUT_SECONDS (5 * 60)  // 5 minutes
+                if (connection_mgr_is_idle(conn, IDLE_TIMEOUT_SECONDS)) {
+                    printf("[EVENT_LOOP] ⏱ Closing idle connection on fd %d (no activity for %d seconds)\n", 
+                           fd, IDLE_TIMEOUT_SECONDS);
+                    epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                    connection_mgr_remove(fd);
+                    close(fd);
+                    continue;
+                }
+
                 // Check for disconnect events
                 if (events[i].events & EPOLLRDHUP) {
                     printf("[EVENT_LOOP] Client on fd %d closed connection\n", fd);

@@ -71,6 +71,9 @@ int request_handler_process(int client_fd) {
     printf("[DEBUG] buffer_offset before append=%d\n", conn->read_offset);
     fflush(stdout);
 
+    // Update activity timestamp (connection is active)
+    connection_mgr_update_activity(conn);
+
     // CRITICAL SECTION: Acquire per-connection lock
     // This protects the read_buffer from concurrent access
     pthread_mutex_lock(&conn->state_lock);

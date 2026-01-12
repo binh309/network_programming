@@ -4,6 +4,7 @@
 #include "see_my_stocks.h"
 #include "../data/portfolio_db.h"
 #include "../data/stock_db.h"
+#include "../core/portfolio_manager.h"
 #include "../network/packet.h"
 #include "../network/protocol.h"
 #include "../model/error.h"
@@ -15,13 +16,14 @@ void handle_see_my_stocks_request(int client_socket, const packet_t* request, co
         return;
     }
 
-    portfolio_t* portfolio = portfolio_db_get(connection->user_id);
+    // Use portfolio_mgr_get_or_create for consistency with buy/sell operations
+    portfolio_t* portfolio = portfolio_mgr_get_or_create(connection->user_id);
     if (!portfolio || portfolio->holding_count == 0) {
         char* msg = "You do not own any stocks.";
         packet_t response;
         create_packet(&response, request->header.request_id, SMSG_VIEW_MY_STOCKS_DATA, msg);
         send_packet(client_socket, &response);
-        if (portfolio) portfolio_db_free(portfolio);
+        // NOTE: Don't free portfolio - it's managed by portfolio_manager
         return;
     }
 
@@ -31,7 +33,7 @@ void handle_see_my_stocks_request(int client_socket, const packet_t* request, co
     char* response_body = malloc(buffer_size);
     if (!response_body) {
         send_error(client_socket, request->header.request_id, "Server memory error.");
-        portfolio_db_free(portfolio);
+        // NOTE: Don't free portfolio - it's managed by portfolio_manager
         return;
     }
     response_body[0] = '\0';
@@ -71,5 +73,5 @@ void handle_see_my_stocks_request(int client_socket, const packet_t* request, co
     send_packet(client_socket, &response);
 
     free(response_body);
-    portfolio_db_free(portfolio);
+    // NOTE: Don't free portfolio - it's managed by portfolio_manager
 }

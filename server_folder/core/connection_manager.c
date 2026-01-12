@@ -108,6 +108,7 @@ connection_t* connection_mgr_add(int client_socket) {
     memset(new_connection->read_buffer, 0, sizeof(new_connection->read_buffer));
     new_connection->read_offset = 0;
     new_connection->connection_time = time(NULL);
+    new_connection->last_activity_time = time(NULL);  // Initialize activity timer
     
     connections[conn_idx] = new_connection;
     
@@ -374,4 +375,29 @@ const char* connection_mgr_state_name(ConnectionState state) {
         case CONN_CLOSED: return "CLOSED";
         default: return "UNKNOWN";
     }
+}
+
+/**
+ * @brief Update the last activity timestamp
+ */
+void connection_mgr_update_activity(connection_t* conn) {
+    if (!conn) return;
+    
+    pthread_mutex_lock(&conn->state_lock);
+    conn->last_activity_time = time(NULL);
+    pthread_mutex_unlock(&conn->state_lock);
+}
+
+/**
+ * @brief Check if connection is idle beyond timeout
+ */
+int connection_mgr_is_idle(connection_t* conn, int timeout_seconds) {
+    if (!conn || timeout_seconds <= 0) return 0;
+    
+    pthread_mutex_lock(&conn->state_lock);
+    time_t now = time(NULL);
+    int is_idle = (now - conn->last_activity_time) > timeout_seconds;
+    pthread_mutex_unlock(&conn->state_lock);
+    
+    return is_idle;
 }
