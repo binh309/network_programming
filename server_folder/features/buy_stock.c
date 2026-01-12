@@ -13,7 +13,7 @@
 #define MAX_TOTAL_SHARES 5000
 
 // Handle buy stock request
-void handle_buy_stock_request(int client_socket, const packet_t* request, session_t* session) {
+void handle_buy_stock_request(int client_socket, const packet_t* request, connection_t* connection) {
     // 1. Parse request: "STOCK_ID,QUANTITY,PRICE,TYPE" (TYPE is LIMIT or MARKET)
     uint16_t stock_id;
     uint32_t quantity;
@@ -25,7 +25,7 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, sessio
         return;
     }
     
-    printf("[BUY] User %u wants to buy %u of stock %hu at %.2f (%s)\n", session->user_id, quantity, stock_id, price, type);
+    printf("[BUY] User %u wants to buy %u of stock %hu at %.2f (%s)\n", connection->user_id, quantity, stock_id, price, type);
 
     // 2. Get stock and user data
     stock_t* stock = stock_db_get_by_id(stock_id);
@@ -34,8 +34,8 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, sessio
         return;
     }
 
-    double user_balance = account_db_get_balance(session->user_id);
-    portfolio_t* portfolio = portfolio_db_get(session->user_id);
+    double user_balance = account_db_get_balance(connection->user_id);
+    portfolio_t* portfolio = portfolio_db_get(connection->user_id);
 
     // Determine execution price
     bool is_market_order = (strcmp(type, "MARKET") == 0);
@@ -90,14 +90,14 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, sessio
     // In V1, we assume instant fill if conditions are met.
     
     // 5. Update user and stock data
-    if (!account_db_update_balance(session->user_id, user_balance - total_cost)) {
+    if (!account_db_update_balance(connection->user_id, user_balance - total_cost)) {
         send_error(client_socket, request->header.request_id, "Server error: Could not update balance.");
         goto cleanup;
     }
 
-    if (!portfolio_db_add_holding(session->user_id, stock_id, quantity, exec_price)) {
+    if (!portfolio_db_add_holding(connection->user_id, stock_id, quantity, exec_price)) {
         // Attempt to roll back the balance deduction
-        account_db_update_balance(session->user_id, user_balance);
+        account_db_update_balance(connection->user_id, user_balance);
         send_error(client_socket, request->header.request_id, "Server error: Could not update portfolio.");
         goto cleanup;
     }
@@ -112,7 +112,7 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, sessio
     create_packet(&response, request->header.request_id, SMSG_BUY_STOCK_SUCCESS, success_msg);
     send_packet(client_socket, &response);
     
-    printf("[BUY] Success: User %u bought %u %s\n", session->user_id, quantity, stock->symbol);
+    printf("[BUY] Success: User %u bought %u %s\n", connection->user_id, quantity, stock->symbol);
 
 cleanup:
     stock_db_free(stock);

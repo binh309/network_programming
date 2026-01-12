@@ -4,12 +4,12 @@
 #include "../data/account_db.h"
 #include "../network/packet.h"
 #include "../network/protocol.h"
-#include "../core/session_manager.h"
+#include "../core/connection_manager.h"
 #include "../model/error.h"
 
 // Handle login request
-void handle_login_request(int client_socket, const packet_t* request, session_t* session) {
-    if (session->is_logged_in) {
+void handle_login_request(int client_socket, const packet_t* request, connection_t* connection) {
+    if (connection->is_logged_in) {
         send_error(client_socket, request->header.request_id, "Already logged in.");
         return;
     }
@@ -28,10 +28,10 @@ void handle_login_request(int client_socket, const packet_t* request, session_t*
 
     if (acc) {
         // Login successful
-        session->is_logged_in = true;
-        session->user_id = acc->user_id;
-        strncpy(session->username, acc->username, sizeof(session->username) - 1);
-        session->username[sizeof(session->username) - 1] = '\0';
+        connection->is_logged_in = true;
+        connection->user_id = acc->user_id;
+        strncpy(connection->username, acc->username, sizeof(connection->username) - 1);
+        connection->username[sizeof(connection->username) - 1] = '\0';
         
         printf("[AUTH] User '%s' (ID: %u) logged in from socket %d\n", acc->username, acc->user_id, client_socket);
 

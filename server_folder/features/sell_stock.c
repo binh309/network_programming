@@ -10,7 +10,12 @@
 #include "../model/error.h"
 
 // Handle sell stock request
-void handle_sell_stock_request(int client_socket, const packet_t* request, session_t* session) {
+void handle_sell_stock_request(int client_socket, const packet_t* request, connection_t* connection) {
+    if (!connection->is_logged_in) {
+        send_error(client_socket, request->header.request_id, "You must be logged in to sell stocks.");
+        return;
+    }
+
     // 1. Parse request: "STOCK_ID,QUANTITY,PRICE,TYPE"
     uint16_t stock_id;
     uint32_t quantity;
@@ -22,7 +27,7 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, sessi
         return;
     }
 
-    printf("[SELL] User %u wants to sell %u of stock %hu at %.2f (%s)\n", session->user_id, quantity, stock_id, price, type);
+    printf("[SELL] User %u wants to sell %u of stock %hu at %.2f (%s)\n", connection->user_id, quantity, stock_id, price, type);
     
     // 2. Get stock and user data
     stock_t* stock = stock_db_get_by_id(stock_id);
@@ -31,7 +36,7 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, sessi
         return;
     }
 
-    portfolio_t* portfolio = portfolio_db_get(session->user_id);
+    portfolio_t* portfolio = portfolio_db_get(connection->user_id);
     if (!portfolio) {
         send_error(client_socket, request->header.request_id, "Could not retrieve portfolio.");
         stock_db_free(stock);
@@ -67,15 +72,15 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, sessi
     double total_proceeds = quantity * exec_price;
 
     // 5. Update user and stock data
-    if (!portfolio_db_remove_holding(session->user_id, stock_id, quantity)) {
+    if (!portfolio_db_remove_holding(connection->user_id, stock_id, quantity)) {
         send_error(client_socket, request->header.request_id, "Server error: Could not update portfolio.");
         goto cleanup;
     }
 
-    double current_balance = account_db_get_balance(session->user_id);
-    if (!account_db_update_balance(session->user_id, current_balance + total_proceeds)) {
+    double current_balance = account_db_get_balance(connection->user_id);
+    if (!account_db_update_balance(connection->user_id, current_balance + total_proceeds)) {
         // Attempt to roll back portfolio change
-        portfolio_db_add_holding(session->user_id, stock_id, quantity, exec_price);
+        portfolio_db_add_holding(connection->user_id, stock_id, quantity, exec_price);
         send_error(client_socket, request->header.request_id, "Server error: Could not update balance.");
         goto cleanup;
     }
@@ -90,7 +95,7 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, sessi
     create_packet(&response, request->header.request_id, SMSG_SELL_STOCK_SUCCESS, success_msg);
     send_packet(client_socket, &response);
 
-    printf("[SELL] Success: User %u sold %u %s\n", session->user_id, quantity, stock->symbol);
+    printf("[SELL] Success: User %u sold %u %s\n", connection->user_id, quantity, stock->symbol);
 
 cleanup:
     stock_db_free(stock);

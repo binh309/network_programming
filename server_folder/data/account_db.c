@@ -148,13 +148,11 @@ bool account_db_add(const char* username, const char* password) {
 
     account_t* new_acc = &accounts[num_accounts];
     new_acc->user_id = num_accounts > 0 ? accounts[num_accounts - 1].user_id + 1 : 1;
-    strncpy(new_acc->username, username, sizeof(new_acc->username) - 1);
-    new_acc->username[sizeof(new_acc->username) - 1] = '\0';
+    snprintf(new_acc->username, sizeof(new_acc->username), "%s", username);
     
     char hashed_pass[32];
     hash_password(password, hashed_pass);
-    strncpy(new_acc->password, hashed_pass, sizeof(new_acc->password) - 1);
-    new_acc->password[sizeof(new_acc->password) - 1] = '\0';
+    snprintf(new_acc->password, sizeof(new_acc->password), "%s", hashed_pass);
 
     new_acc->balance = 10000.0; // Default starting balance
 

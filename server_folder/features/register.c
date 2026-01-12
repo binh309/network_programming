@@ -7,9 +7,9 @@
 #include "../model/error.h"
 
 // Handle registration request
-void handle_register_request(int client_socket, const packet_t* request, session_t* session) {
-    if (session->is_logged_in) {
-        send_error(client_socket, request->header.request_id, "Already logged in.");
+void handle_register_request(int client_socket, const packet_t* request, connection_t* connection) {
+    if (connection->is_logged_in) {
+        send_error(client_socket, request->header.request_id, "Cannot register while logged in.");
         return;
     }
 

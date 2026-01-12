@@ -5,31 +5,10 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include "packet.h"
+#include "network_send.h"
+#include "packet_builder.h"
 
-// Helper function to send a precise number of bytes
-static int send_all(int sockfd, const void* buf, size_t len) {
-    size_t total_sent = 0;
-    while (total_sent < len) {
-        ssize_t sent = write(sockfd, (const char*)buf + total_sent, len - total_sent);
-        if (sent < 0) {
-            // On non-blocking sockets, EAGAIN and EWOULDBLOCK are expected.
-            // For this simple client, we'll treat them as errors.
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                perror("write would block");
-                return -1;
-            }
-            perror("write failed in send_all");
-            return -1;
-        }
-        if (sent == 0) {
-            fprintf(stderr, "Connection closed by peer during send.\n");
-            return -1;
-        }
-        total_sent += sent;
-    }
-    return 0;
-}
-
+#define BUFFER_SIZE (sizeof(packet_header_t) + MAX_BODY_LEN)
 
 // Create a new packet
 void create_packet(packet_t* packet, uint16_t request_id, uint8_t type, const char* body) {
@@ -57,24 +36,19 @@ void create_packet(packet_t* packet, uint16_t request_id, uint8_t type, const ch
 int send_packet(int sockfd, const packet_t* packet) {
     if (!packet) return -1;
 
-    // Prepare header for network transmission
-    packet_header_t net_header;
-    net_header.request_id = htons(packet->header.request_id);
-    net_header.type = packet->header.type;
-    net_header.length = htons(packet->header.length);
+    char send_buffer[BUFFER_SIZE];
+    size_t serialized_size = 0;
 
-    // Send header
-    if (send_all(sockfd, &net_header, sizeof(packet_header_t)) != 0) {
-        fprintf(stderr, "Failed to send packet header.\n");
+    // Serialize the packet into a buffer
+    if (packet_builder_serialize(packet, send_buffer, BUFFER_SIZE, &serialized_size) != 0) {
+        fprintf(stderr, "Failed to serialize packet.\n");
         return -1;
     }
 
-    // Send body
-    if (packet->header.length > 0) {
-        if (send_all(sockfd, packet->body, packet->header.length) != 0) {
-            fprintf(stderr, "Failed to send packet body.\n");
-            return -1;
-        }
+    // Send the entire serialized buffer
+    if (network_send(sockfd, send_buffer, serialized_size) != 0) {
+        fprintf(stderr, "Failed to send complete packet.\n");
+        return -1;
     }
 
     return 0;

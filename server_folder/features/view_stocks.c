@@ -8,8 +8,8 @@
 #include "../model/error.h"
 
 // Handle view stocks request
-void handle_view_stocks_request(int client_socket, const packet_t* request, session_t* session) {
-    printf("[FEATURE] View stocks request from user %s (ID: %u)\n", session->username, session->user_id);
+void handle_view_stocks_request(int client_socket, const packet_t* request, connection_t* connection) {
+    printf("[FEATURE] View stocks request from user %s (ID: %u)\n", connection->username, connection->user_id);
 
     int stock_count = 0;
     stock_t* stocks = stock_db_get_all(&stock_count);
@@ -57,5 +57,5 @@ void handle_view_stocks_request(int client_socket, const packet_t* request, sess
     free(response_body);
     stock_db_free(stocks);
 
-    printf("[FEATURE] Sent %d stocks to user %s\n", stock_count, session->username);
+    printf("[FEATURE] Sent %d stocks to user %s\n", stock_count, connection->username);
 }

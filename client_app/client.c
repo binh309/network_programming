@@ -104,7 +104,18 @@ void handle_response(const packet_t* response) {
     }
 }
 
-int main(void) {
+int main(int argc, char* argv[]) {
+    const char* server_ip = SERVER_HOST;
+    int server_port = SERVER_PORT;
+
+    // Allow overriding server IP and Port via command line
+    if (argc > 1) {
+        server_ip = argv[1];
+    }
+    if (argc > 2) {
+        server_port = atoi(argv[2]);
+    }
+
     g_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (g_socket_fd < 0) {
         perror("socket");
@@ -113,16 +124,17 @@ int main(void) {
 
     struct sockaddr_in server_addr = {
         .sin_family = AF_INET,
-        .sin_port = htons(SERVER_PORT),
-        .sin_addr.s_addr = inet_addr(SERVER_HOST)
+        .sin_port = htons(server_port),
+        .sin_addr.s_addr = inet_addr(server_ip)
     };
 
     if (connect(g_socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        fprintf(stderr, "[ERROR] Failed to connect to %s:%d. Check IP and Firewall.\n", server_ip, server_port);
         perror("connect");
         return 1;
     }
 
-    printf("[CLIENT] Connected to server. Welcome to the trading system!\n");
+    printf("[CLIENT] Connected to server at %s:%d. Welcome to the trading system!\n", server_ip, server_port);
     show_menu();
 
     char input[256];
@@ -214,14 +226,13 @@ void cmd_logout() {
         printf("[ERROR] You are not logged in.\n");
         return;
     }
-    packet_t request;
+    packet_t request, response;
     create_packet(&request, ++g_request_id, CMSG_LOGOUT, NULL);
     send_packet(g_socket_fd, &request);
 
-    // The server may or may not send a response. For now, we just log out locally.
-    g_is_logged_in = false;
-    memset(g_username, 0, sizeof(g_username));
-    printf("\n✓ SUCCESS: You have been logged out.\n\n");
+    if (receive_packet(g_socket_fd, &response) == 0) {
+        handle_response(&response);
+    }
 }
 
 
@@ -266,7 +277,7 @@ void cmd_buy_stock(char* args) {
         return;
     }
 
-    char body[100];
+    char body[256];
     snprintf(body, sizeof(body), "%hu,%u,%f,%s", id, qty, price, type); 
     
     packet_t request, response;
@@ -292,7 +303,7 @@ void cmd_sell_stock(char* args) {
         return;
     }
 
-    char body[100];
+    char body[256];
     snprintf(body, sizeof(body), "%hu,%u,%f,%s", id, qty, price, type);
 
     packet_t request, response;
