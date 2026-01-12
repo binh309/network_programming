@@ -176,8 +176,8 @@ void event_loop_run(event_loop_ctx_t* loop) {
                 // Skip CONN_CLOSED, CONN_CLOSING, CONN_PROCESSING
                 if (!connection_mgr_is_valid_for_processing(conn)) {
                     ConnectionState state = connection_mgr_get_state(conn);
-                    printf("[EVENT_LOOP] Skipping event on fd %d - invalid state: %s\n", 
-                           fd, connection_mgr_state_name(state));
+                    printf("[EVENT_LOOP] ✗ Skipping event on fd %d - invalid state: %s (%d)\n", 
+                           fd, connection_mgr_state_name(state), state);
                     
                     // If it's in CLOSING or CLOSED state, clean it up
                     if (state == CONN_CLOSING || state == CONN_CLOSED) {
@@ -187,6 +187,10 @@ void event_loop_run(event_loop_ctx_t* loop) {
                     }
                     continue;
                 }
+                
+                ConnectionState cur_state = connection_mgr_get_state(conn);
+                printf("[EVENT_LOOP] ✓ Valid state for processing: %s (%d)\n", 
+                       connection_mgr_state_name(cur_state), cur_state);
 
                 // Process incoming request (Layer 3: request_handler)
                 int result = request_handler_process(fd);

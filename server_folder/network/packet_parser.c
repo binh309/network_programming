@@ -56,12 +56,17 @@ int packet_parser_check_message_ex(const char* buffer, size_t bytes_in_buffer, s
 
     // Check if we have at least the header
     if (bytes_in_buffer < sizeof(packet_header_t)) {
+        printf("[PARSER] Incomplete header: have %lu bytes, need %lu\n", 
+               bytes_in_buffer, sizeof(packet_header_t));
         return PARSE_INCOMPLETE;  // Need more data
     }
 
     // Read declared body length from header
     const packet_header_t* net_header = (const packet_header_t*)buffer;
     uint16_t declared_body_len = ntohs(net_header->length);
+    
+    printf("[PARSER] Header says type=0x%02x, request_id=%u, body_len=%u\n",
+           net_header->type, ntohs(net_header->request_id), declared_body_len);
     
     // SECURITY CHECK: Reject oversized packets
     if (declared_body_len > MAX_PACKET_SIZE) {
@@ -73,12 +78,18 @@ int packet_parser_check_message_ex(const char* buffer, size_t bytes_in_buffer, s
     // Calculate total packet size
     size_t total_packet_size = sizeof(packet_header_t) + declared_body_len;
     
+    printf("[PARSER] Total packet size needed=%lu, have=%lu bytes\n",
+           total_packet_size, bytes_in_buffer);
+    
     // Check if full packet is in buffer
     if (bytes_in_buffer >= total_packet_size) {
         *out_packet_size = total_packet_size;
+        printf("[PARSER] ✓ Complete packet ready! size=%lu\n", total_packet_size);
         return PARSE_OK;  // Complete packet ready
     }
     
+    printf("[PARSER] Packet incomplete, need %lu more bytes\n", 
+           total_packet_size - bytes_in_buffer);
     return PARSE_INCOMPLETE;  // Need more data
 }
 
@@ -93,6 +104,7 @@ int packet_parser_check_message_ex(const char* buffer, size_t bytes_in_buffer, s
  */
 int packet_parser_deserialize(const char* buffer, packet_t* packet) {
     if (buffer == NULL || packet == NULL) {
+        printf("[PARSER] Deserialize: NULL input\n");
         return -1;
     }
 
@@ -103,6 +115,9 @@ int packet_parser_deserialize(const char* buffer, packet_t* packet) {
     packet->header.type = net_header->type;
     packet->header.length = body_len;
 
+    printf("[PARSER] Deserialize: type=0x%02x, request_id=%u, body_len=%u\n",
+           packet->header.type, packet->header.request_id, body_len);
+
     if (body_len > 0) {
         if (body_len >= MAX_BODY_LEN) {
              fprintf(stderr, "[PARSER] Warning: Received body length (%u) is too large, truncating.\n", body_len);
@@ -110,8 +125,10 @@ int packet_parser_deserialize(const char* buffer, packet_t* packet) {
              packet->header.length = body_len;
         }
         memcpy(packet->body, buffer + sizeof(packet_header_t), body_len);
+        printf("[PARSER] Copied %u bytes to body\n", body_len);
     }
     packet->body[body_len] = '\0';
+    printf("[PARSER] Deserialize complete. Body: %.50s\n", (char*)packet->body);
 
     return 0;
 }

@@ -250,13 +250,13 @@ int connection_mgr_set_state(connection_t* conn, ConnectionState new_state) {
 int connection_mgr_append_data(connection_t* conn, const char* data, int length) {
     if (!conn || !data || length <= 0) return -1;
     
-    pthread_mutex_lock(&conn->state_lock);
+    // NOTE: Caller (request_handler) is responsible for locking
+    // DO NOT lock here - mutex is already held by caller
     
     // Check buffer overflow
     if (conn->read_offset + length > BUFFER_SIZE) {
         fprintf(stderr, "[CONN_MGR] Buffer overflow on socket %d (current: %d, adding: %d)\n",
                 conn->client_socket, conn->read_offset, length);
-        pthread_mutex_unlock(&conn->state_lock);
         return -1;
     }
     
@@ -264,7 +264,6 @@ int connection_mgr_append_data(connection_t* conn, const char* data, int length)
     memcpy(&conn->read_buffer[conn->read_offset], data, length);
     conn->read_offset += length;
     
-    pthread_mutex_unlock(&conn->state_lock);
     return 0;
 }
 
@@ -317,7 +316,8 @@ size_t connection_mgr_has_complete_packet(connection_t* conn) {
 void connection_mgr_consume_packet(connection_t* conn, size_t packet_size) {
     if (!conn || packet_size == 0) return;
     
-    pthread_mutex_lock(&conn->state_lock);
+    // NOTE: Caller (request_handler) is responsible for locking
+    // DO NOT lock here - mutex is already held by caller
     
     if (packet_size >= (size_t)conn->read_offset) {
         // This was the only packet, clear buffer
@@ -328,8 +328,6 @@ void connection_mgr_consume_packet(connection_t* conn, size_t packet_size) {
         memmove(conn->read_buffer, &conn->read_buffer[packet_size], remaining);
         conn->read_offset = remaining;
     }
-    
-    pthread_mutex_unlock(&conn->state_lock);
 }
 
 /**

@@ -204,14 +204,20 @@ void cmd_login(char* args) {
         return;
     }
 
+    printf("[CLIENT] Sending login command\n");
     char body[65];
     snprintf(body, sizeof(body), "%s,%s", username, password);
 
     packet_t request, response;
     create_packet(&request, ++g_request_id, CMSG_LOGIN, body);
+    printf("[CLIENT] Created packet type=0x%02x, request_id=%u, body=%s\n",
+           request.header.type, request.header.request_id, (char*)request.body);
+    
     send_packet(g_socket_fd, &request);
+    printf("[CLIENT] Login packet sent, waiting for response...\n");
 
     if (receive_packet(g_socket_fd, &response) == 0) {
+        printf("[CLIENT] Received response type=0x%02x\n", response.header.type);
         if (response.header.type == SMSG_LOGIN_SUCCESS) {
             g_is_logged_in = true;
             strncpy(g_username, username, sizeof(g_username) - 1);

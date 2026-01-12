@@ -42,19 +42,23 @@ dispatcher_status_t dispatcher_handle_message(int client_socket, const packet_t*
     // These messages can be handled without being logged in
     switch (packet->header.type) {
         case CMSG_REGISTER:
+            printf("[DISPATCHER] → Routing to REGISTER handler\n");
             // Currently: handle_register_request() sends response directly
             // Migration needed: Make it return status code
             handle_register_request(client_socket, packet, connection);
             return DISP_OK;  // For now, assume success
             
         case CMSG_LOGIN:
+            printf("[DISPATCHER] → Routing to LOGIN handler\n");
             // Currently: handle_login_request() sends response directly
             // Migration needed: Make it return status code
             handle_login_request(client_socket, packet, connection);
+            printf("[DISPATCHER] ← LOGIN handler returned\n");
             return DISP_OK;  // For now, assume success (actual check in handler)
             
         case CMSG_LOGOUT:
         {
+            printf("[DISPATCHER] → Routing to LOGOUT handler\n");
             // Handle logout: clear session and send response
             if (connection) {
                 connection->is_logged_in = false;
@@ -65,6 +69,7 @@ dispatcher_status_t dispatcher_handle_message(int client_socket, const packet_t*
             packet_t response;
             create_packet(&response, packet->header.request_id, SMSG_LOGOUT_SUCCESS, "Logged out successfully");
             send_packet(client_socket, &response);
+            printf("[DISPATCHER] ← LOGOUT handler returned\n");
             return DISP_OK;
         }
     }
