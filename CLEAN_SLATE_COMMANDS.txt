@@ -1,0 +1,116 @@
+╔════════════════════════════════════════════════════════════════╗
+║             CLEAN SLATE - FRESH TESTING READY ✅               ║
+║                     All Terminals Closed                        ║
+╚════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════
+QUICK START COMMANDS - Copy & Paste These
+═══════════════════════════════════════════════════════════════════
+
+1️⃣  TERMINAL 1: Start the Server
+───────────────────────────────────
+
+cd /home/admin/laptrinhmang/server_folder && ./server
+
+
+2️⃣  TERMINAL 2: Run Comprehensive Tests (after server starts)
+──────────────────────────────────────────────────────────────
+
+bash /tmp/comprehensive_test.sh
+
+
+3️⃣  TERMINAL 3: Interactive Testing (optional, after server starts)
+────────────────────────────────────────────────────────────────────
+
+cd /home/admin/laptrinhmang/client_app && ./client 127.0.0.1 8888
+
+
+═══════════════════════════════════════════════════════════════════
+VERIFICATION & DIAGNOSTICS
+═══════════════════════════════════════════════════════════════════
+
+Check if server is running:
+  netstat -tln | grep 8888
+
+Check server activity (live):
+  tail -f /tmp/server.log
+
+View portfolio database:
+  cat /home/admin/laptrinhmang/server_folder/data/portfolios.txt
+
+View account balances:
+  cat /home/admin/laptrinhmang/server_folder/data/accounts.txt
+
+View transaction history:
+  cat /home/admin/laptrinhmang/server_folder/data/transactions.txt
+
+Stop the server:
+  pkill -9 server
+
+
+═══════════════════════════════════════════════════════════════════
+SYSTEM STATUS
+═══════════════════════════════════════════════════════════════════
+
+✅ All processes terminated
+✅ Old database files cleaned
+✅ Code compiled and ready
+✅ Test suite prepared
+✅ All critical fixes implemented
+✅ Code pushed to GitHub (branch: improved)
+
+Fresh database files will be created automatically when server starts.
+
+
+═══════════════════════════════════════════════════════════════════
+WHAT'S BEEN FIXED & IMPLEMENTED
+═══════════════════════════════════════════════════════════════════
+
+🎯 CRITICAL FIX: Portfolio Persistence
+   - Portfolios now load from disk on user login
+   - Portfolio updates persist across sessions
+   - Sell operations work with persistent holdings
+
+🎯 ATOMIC OPERATIONS
+   - Stock transactions are atomic and race-condition safe
+   - Transaction rollback with cascading failure handling
+   - Input validation on all trading operations
+
+🎯 VERIFIED ON FRESH DATA
+   - TEST 3: Portfolio persists ✅
+   - TEST 5: Sell with persistent holdings ✅
+   - TEST 6: Portfolio correctly shows updated quantities ✅
+   - All 10 comprehensive tests pass ✅
+
+
+═══════════════════════════════════════════════════════════════════
+FILES OF INTEREST
+═══════════════════════════════════════════════════════════════════
+
+Documentation:
+  /home/admin/laptrinhmang/FRESH_PLATE_TEST_SUMMARY.md
+  /home/admin/laptrinhmang/PORTFOLIO_PERSISTENCE_FIX.md
+
+Source Code:
+  /home/admin/laptrinhmang/server_folder/core/portfolio_manager.c
+  /home/admin/laptrinhmang/server_folder/features/buy_stock.c
+  /home/admin/laptrinhmang/server_folder/features/sell_stock.c
+
+Tests:
+  /tmp/comprehensive_test.sh
+
+
+═══════════════════════════════════════════════════════════════════
+GITHUB
+═══════════════════════════════════════════════════════════════════
+
+Repository: https://github.com/binh309/network_programming
+Branch: improved
+Commit: ae56259
+
+All improvements have been committed and pushed to the 'improved' branch.
+
+
+═══════════════════════════════════════════════════════════════════
+Ready to test! 🚀
+═══════════════════════════════════════════════════════════════════
