@@ -7,7 +7,7 @@
 #include "account_db.h"
 #include "../model/error.h"
 
-#define MAX_ACCOUNTS 100
+#define MAX_ACCOUNTS 1000  // Increased to support test accounts (100 regular + 100 test)
 
 // In-memory database
 static account_t accounts[MAX_ACCOUNTS];
@@ -253,4 +253,79 @@ bool account_db_update_balance(uint32_t user_id, double new_balance) {
     
     pthread_mutex_unlock(&db_mutex);
     return success;
+}
+
+// Delete all test accounts (ID range 9001-9100)
+int account_db_delete_test_accounts(void) {
+    int deleted = 0;
+    pthread_mutex_lock(&db_mutex);
+    
+    // Remove test accounts by shifting array
+    int write_idx = 0;
+    for (int read_idx = 0; read_idx < num_accounts; read_idx++) {
+        if (accounts[read_idx].user_id >= TEST_ACCOUNT_ID_START && 
+            accounts[read_idx].user_id <= TEST_ACCOUNT_ID_END) {
+            deleted++;
+        } else {
+            if (write_idx != read_idx) {
+                accounts[write_idx] = accounts[read_idx];
+            }
+            write_idx++;
+        }
+    }
+    num_accounts = write_idx;
+    
+    persist_db();
+    pthread_mutex_unlock(&db_mutex);
+    return deleted;
+}
+
+// Create a test account with specific ID
+bool account_db_create_test_account(uint32_t id, const char* username, 
+                                     const char* password, double balance) {
+    pthread_mutex_lock(&db_mutex);
+    
+    if (num_accounts >= MAX_ACCOUNTS) {
+        pthread_mutex_unlock(&db_mutex);
+        return false;
+    }
+    
+    account_t* new_acc = &accounts[num_accounts];
+    new_acc->user_id = id;
+    snprintf(new_acc->username, sizeof(new_acc->username), "%s", username);
+    snprintf(new_acc->password, sizeof(new_acc->password), "%s", password);
+    new_acc->balance = balance;
+    
+    num_accounts++;
+    pthread_mutex_unlock(&db_mutex);
+    return true;
+}
+
+// Setup all test accounts (delete existing, create fresh with $1M each)
+int account_db_setup_test_accounts(void) {
+    // First delete any existing test accounts
+    account_db_delete_test_accounts();
+    
+    // Create 100 test accounts
+    int created = 0;
+    for (int i = 1; i <= TEST_ACCOUNT_COUNT; i++) {
+        char username[32], password[32];
+        snprintf(username, sizeof(username), "test%d", i);
+        snprintf(password, sizeof(password), "test%d", i);
+        
+        if (account_db_create_test_account(
+                TEST_ACCOUNT_ID_START + i - 1, 
+                username, 
+                password, 
+                TEST_ACCOUNT_BALANCE)) {
+            created++;
+        }
+    }
+    
+    // Persist to disk
+    pthread_mutex_lock(&db_mutex);
+    persist_db();
+    pthread_mutex_unlock(&db_mutex);
+    
+    return created;
 }

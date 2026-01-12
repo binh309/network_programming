@@ -24,4 +24,20 @@ double account_db_get_balance(uint32_t user_id);
 bool account_db_update_balance(uint32_t user_id, double new_balance);
 bool account_db_add(const char* username, const char* password);
 
+// Test account management (IDs 9001-9100 reserved for load testing)
+#define TEST_ACCOUNT_ID_START 9001
+#define TEST_ACCOUNT_ID_END   9100
+#define TEST_ACCOUNT_COUNT    100
+#define TEST_ACCOUNT_BALANCE  100000000.0  // $100 million
+
+// Delete all test accounts (ID range 9001-9100)
+int account_db_delete_test_accounts(void);
+
+// Create a test account with specific ID
+bool account_db_create_test_account(uint32_t id, const char* username, 
+                                     const char* password, double balance);
+
+// Setup all test accounts (delete existing, create fresh with $1M each)
+int account_db_setup_test_accounts(void);
+
 #endif

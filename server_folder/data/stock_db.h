@@ -43,4 +43,7 @@ bool stock_db_atomic_buy(uint16_t stock_id, uint32_t quantity, uint32_t* new_vol
 // Atomic sell: Add quantity back to volume. Returns true if successful.
 bool stock_db_atomic_sell(uint16_t stock_id, uint32_t quantity, uint32_t* new_volume);
 
+// Reset all stock volumes to a given value (for load testing)
+bool stock_db_reset_volumes(uint32_t volume);
+
 #endif

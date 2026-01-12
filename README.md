@@ -1,8 +1,8 @@
 # Trading System - Network Programming Project
 
-A multi-threaded C-based trading system with client-server architecture, featuring atomic operations, persistent portfolio management, and comprehensive transaction handling.
+A multi-threaded C-based trading system with client-server architecture, featuring atomic operations, persistent portfolio management, ncurses TUI dashboard, and a load synthesizer for stress testing.
 
-**Status**: ✅ Production Ready | **Version**: 1.0.0-improved | **Last Updated**: January 12, 2026
+**Status**: ✅ Production Ready | **Version**: 2.0.0-tui | **Last Updated**: January 12, 2026
 
 ---
 
@@ -11,6 +11,8 @@ A multi-threaded C-based trading system with client-server architecture, featuri
 - [Quick Start](#quick-start) 
 - [Overview](#overview)
 - [Features](#features)
+- [TUI Dashboard](#tui-dashboard)
+- [Load Synthesizer](#load-synthesizer)
 - [Building](#building)
 - [Running](#running)
 - [Testing](#testing)
@@ -34,10 +36,11 @@ This is a complete trading system implementation demonstrating advanced C progra
 - **Session management** with authentication
 
 ### Key Statistics
-- **72 files** total (source + documentation + tests)
+- **80+ files** total (source + documentation + tests)
 - **0 compilation errors** across all modules
 - **10 comprehensive tests** with 100% pass rate
-- **5,635 lines** of improvements and fixes
+- **ncurses TUI** with real-time statistics
+- **Load synthesizer** for stress testing
 
 ---
 
@@ -151,6 +154,113 @@ Example: sell 1 2 140.00 MARKET
 
 ---
 
+## TUI Dashboard
+
+The server features an ncurses-based terminal UI showing real-time statistics:
+
+```
+┌─ STATS ──────────────────────────────────────────────────────────────────────┐
+│  Throughput: 45.2/s   Latency: 3.1ms   Connections: 20   Value: $1.2M       │
+│  Processed: 4521      Filled: 4488     Rejected: 33      Success: 99.3%     │
+│                                                                              │
+│  TOP STOCKS (by value):                                                      │
+│    AAPL: $523.4K (1847 orders)   GOOGL: $312.1K (892 orders)                │
+├─ GRAPH (orders/sec - 5 min) ─────────────────────────────────────────────────┤
+│  50│                    ▄▄██▄                                                │
+│    │               ▄▄▄▄██████▄▄                                              │
+│    │          ▄▄▄██████████████▄▄                                            │
+│    │     ▄▄▄██████████████████████▄▄▄                                        │
+│   0└─────────────────────────────────────────────────────────────            │
+├─ LOGS ───────────────────────────────────────────────────────────────────────┤
+│  [12:34:56] Client connected: 192.168.1.100                                  │
+│  [12:34:57] Login: user1                                                     │
+│  [12:34:58] BUY: user1 bought 10 AAPL @ $150.00                              │
+├─ ADMIN ──────────────────────────────────────────────────────────────────────┤
+│  > setup_test                                                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Admin Commands
+
+Type commands in the admin panel:
+
+| Command | Description |
+|---------|-------------|
+| `help` | Show all commands |
+| `status` | Detailed server stats |
+| `setup_test` | Create 100 test accounts ($1M each) |
+| `list_users` | Show all users |
+| `list_stocks` | Show all stocks |
+| `credit <id> <amt>` | Add funds to account |
+| `set_price <id> <bid> <ask>` | Set stock price |
+
+---
+
+## Load Synthesizer
+
+Stress test the server with multiple simulated clients:
+
+```bash
+cd load_synth
+./synth --host 127.0.0.1 --port 8080 --clients 50 --duration 60
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-h, --host` | Server hostname | 127.0.0.1 |
+| `-p, --port` | Server port | 8080 |
+| `-c, --clients` | Number of clients | 20 |
+| `-d, --duration` | Test duration (sec) | 60 |
+| `-r, --rate` | Target orders/sec | unlimited |
+| `-v, --verbose` | Verbose output | off |
+
+### Demo Workflow
+
+```bash
+# Terminal 1: Start server
+cd server_folder && ./server
+
+# In server TUI, type: setup_test
+# This creates 100 test accounts with $1M each
+
+# Terminal 2: Run load test
+cd load_synth
+./synth --clients 50 --duration 120
+
+# Press SPACE to pause (for honesty check - manual orders still work)
+# Press Q to quit
+```
+
+### Sample Output
+
+```
+================================================================
+                     LOAD TEST REPORT
+================================================================
+Duration:        60.2s
+Clients:         50 connected, 0 failed
+
+ORDERS
+  Total sent:     2,847
+  Successful:     2,823 (99.2%)
+  Rejected:       24 (0.8%)
+
+THROUGHPUT
+  Average:        47.3 orders/sec
+
+LATENCY
+  Average:        3.21 ms
+  Median (p50):   2.84 ms
+  p95:            6.12 ms
+  p99:            12.45 ms
+================================================================
+✓ EXCELLENT - Server handled load with 99.2% success rate
+```
+
+---
+
 ## Building
 
 ### Prerequisites
@@ -160,6 +270,7 @@ Example: sell 1 2 140.00 MARKET
 - GCC compiler (tested with GCC 9+)
 - POSIX-compliant system (Linux, macOS, WSL2)
 - pthread library
+- ncurses library
 - make
 ```
 
@@ -173,9 +284,13 @@ make clean && make
 # Client
 cd /home/admin/laptrinhmang/client_app
 make clean && make
+
+# Load Synthesizer
+cd /home/admin/laptrinhmang/load_synth
+make clean && make
 ```
 
-Both should compile with **0 errors, 0 warnings**.
+All should compile with **0 errors**.
 
 Verify:
 ```bash

@@ -353,3 +353,20 @@ bool stock_db_atomic_sell(uint16_t stock_id, uint32_t quantity, uint32_t* new_vo
     pthread_mutex_unlock(&db_mutex);
     return success;
 }
+
+/**
+ * @brief Reset all stock volumes to a given value (for load testing)
+ */
+bool stock_db_reset_volumes(uint32_t volume) {
+    pthread_mutex_lock(&db_mutex);
+    
+    for (int i = 0; i < stock_count; i++) {
+        stocks[i].volume = volume;
+    }
+    
+    bool success = persist_db();
+    pthread_mutex_unlock(&db_mutex);
+    
+    server_debug("[STOCK_DB] Reset all stock volumes to %u\n", volume);
+    return success;
+}

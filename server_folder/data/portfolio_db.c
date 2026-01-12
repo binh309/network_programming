@@ -5,17 +5,29 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include "portfolio_db.h"
+#include "account_db.h"  // For TEST_ACCOUNT_ID_START/END
 #include "../model/error.h"
 
-#define MAX_USERS 100
 #define DB_PATH "data/portfolios.txt"
 
-// In-memory database
-static portfolio_t* user_portfolios[MAX_USERS] = {NULL};
+// Hash table for sparse user IDs (supports test accounts at 9001+)
+typedef struct portfolio_node {
+    portfolio_t* portfolio;
+    struct portfolio_node* next;
+} portfolio_node_t;
+
+#define HASH_BUCKETS 1024
+static portfolio_node_t* portfolio_hash[HASH_BUCKETS] = {NULL};
 static pthread_mutex_t db_mutex;
 
-// Forward declarations for internal functions
+// Hash function
+static inline uint32_t hash_user_id(uint32_t user_id) {
+    return user_id % HASH_BUCKETS;
+}
+
+// Forward declarations
 static portfolio_t* find_or_create_portfolio(uint32_t user_id);
+static portfolio_t* find_portfolio(uint32_t user_id);
 
 // Initialize portfolio database
 bool portfolio_db_init() {
@@ -23,6 +35,12 @@ bool portfolio_db_init() {
         fprintf(stderr, "[PORTF_DB] Mutex init failed\n");
         return false;
     }
+    
+    // Initialize hash table
+    for (int i = 0; i < HASH_BUCKETS; i++) {
+        portfolio_hash[i] = NULL;
+    }
+    
     if (!portfolio_db_load()) {
         fprintf(stderr, "[PORTF_DB] Failed to load portfolio data. Starting fresh.\n");
     }
@@ -33,12 +51,18 @@ bool portfolio_db_init() {
 // Destroy portfolio database (free memory)
 void portfolio_db_destroy() {
     pthread_mutex_lock(&db_mutex);
-    for (int i = 0; i < MAX_USERS; i++) {
-        if (user_portfolios[i]) {
-            free(user_portfolios[i]->holdings);
-            free(user_portfolios[i]);
-            user_portfolios[i] = NULL;
+    for (int i = 0; i < HASH_BUCKETS; i++) {
+        portfolio_node_t* node = portfolio_hash[i];
+        while (node) {
+            portfolio_node_t* next = node->next;
+            if (node->portfolio) {
+                free(node->portfolio->holdings);
+                free(node->portfolio);
+            }
+            free(node);
+            node = next;
         }
+        portfolio_hash[i] = NULL;
     }
     pthread_mutex_unlock(&db_mutex);
     pthread_mutex_destroy(&db_mutex);
@@ -55,7 +79,7 @@ void portfolio_db_free(portfolio_t* portfolio) {
 
 // Get a user's portfolio (returns a heap-allocated copy)
 portfolio_t* portfolio_db_get(uint32_t user_id) {
-    if (user_id == 0 || user_id > MAX_USERS) {
+    if (user_id == 0) {
         return NULL;
     }
 
@@ -150,7 +174,7 @@ bool portfolio_db_remove_holding(uint32_t user_id, uint16_t stock_id, uint32_t q
 
     pthread_mutex_lock(&db_mutex);
 
-    portfolio_t* portfolio = find_or_create_portfolio(user_id);
+    portfolio_t* portfolio = find_portfolio(user_id);
     if (!portfolio) {
         pthread_mutex_unlock(&db_mutex);
         return false;
@@ -183,7 +207,7 @@ bool portfolio_db_remove_holding(uint32_t user_id, uint16_t stock_id, uint32_t q
     return success;
 }
 
-// Load portfolios from disk
+// Load portfolios from disk (called without lock during init)
 bool portfolio_db_load() {
     FILE* fp = fopen(DB_PATH, "r");
     if (!fp) {
@@ -198,8 +222,9 @@ bool portfolio_db_load() {
         const char* p = line;
 
         if (sscanf(p, "%u:", &user_id) != 1) continue;
-        p = strchr(p, ':') + 1;
+        p = strchr(p, ':');
         if (!p) continue;
+        p++;  // Skip the ':'
         
         portfolio_t* portfolio = find_or_create_portfolio(user_id);
         if (!portfolio) continue;
@@ -209,7 +234,36 @@ bool portfolio_db_load() {
         double price;
 
         while (sscanf(p, " %hu,%u,%lf%n", &stock_id, &qty, &price, &items_read) == 3) {
-            portfolio_db_add_holding(user_id, stock_id, qty, price);
+            // Add holding directly (we're in init, avoid recursive locking)
+            holding_t* holding = NULL;
+            for (uint32_t i = 0; i < portfolio->holding_count; i++) {
+                if (portfolio->holdings[i].stock_id == stock_id) {
+                    holding = &portfolio->holdings[i];
+                    break;
+                }
+            }
+            
+            if (holding) {
+                double total_value_before = holding->quantity * holding->average_purchase_price;
+                double total_value_new = qty * price;
+                holding->quantity += qty;
+                holding->average_purchase_price = (total_value_before + total_value_new) / holding->quantity;
+            } else {
+                if (portfolio->holding_count >= portfolio->capacity) {
+                    portfolio->capacity = portfolio->capacity > 0 ? portfolio->capacity * 2 : 10;
+                    holding_t* new_holdings = realloc(portfolio->holdings, sizeof(holding_t) * portfolio->capacity);
+                    if (new_holdings) {
+                        portfolio->holdings = new_holdings;
+                    }
+                }
+                if (portfolio->holding_count < portfolio->capacity) {
+                    holding_t* new_holding = &portfolio->holdings[portfolio->holding_count];
+                    new_holding->stock_id = stock_id;
+                    new_holding->quantity = qty;
+                    new_holding->average_purchase_price = price;
+                    portfolio->holding_count++;
+                }
+            }
             p += items_read;
         }
     }
@@ -218,7 +272,7 @@ bool portfolio_db_load() {
     return true;
 }
 
-// Persist all portfolios to disk
+// Persist all portfolios to disk (must be called with mutex held)
 bool portfolio_db_persist() {
     FILE* fp = fopen(DB_PATH, "w");
     if (!fp) {
@@ -226,15 +280,19 @@ bool portfolio_db_persist() {
         return false;
     }
 
-    for (int i = 0; i < MAX_USERS; i++) {
-        portfolio_t* p = user_portfolios[i];
-        if (p && p->holding_count > 0) {
-            fprintf(fp, "%u:", p->user_id);
-            for (uint32_t j = 0; j < p->holding_count; j++) {
-                holding_t* h = &p->holdings[j];
-                fprintf(fp, " %hu,%u,%.2f", h->stock_id, h->quantity, h->average_purchase_price);
+    for (int i = 0; i < HASH_BUCKETS; i++) {
+        portfolio_node_t* node = portfolio_hash[i];
+        while (node) {
+            portfolio_t* p = node->portfolio;
+            if (p && p->holding_count > 0) {
+                fprintf(fp, "%u:", p->user_id);
+                for (uint32_t j = 0; j < p->holding_count; j++) {
+                    holding_t* h = &p->holdings[j];
+                    fprintf(fp, " %hu,%u,%.2f", h->stock_id, h->quantity, h->average_purchase_price);
+                }
+                fprintf(fp, "\n");
             }
-            fprintf(fp, "\n");
+            node = node->next;
         }
     }
 
@@ -242,29 +300,88 @@ bool portfolio_db_persist() {
     return true;
 }
 
-// --- Internal Helper Functions ---
-
-// Find a portfolio for a user; if it doesn't exist, create it.
-// NOTE: This function MUST be called within a locked mutex.
-static portfolio_t* find_or_create_portfolio(uint32_t user_id) {
-    if (user_id == 0 || user_id > MAX_USERS) return NULL; 
+// Delete all test account portfolios (IDs 9001-9100)
+int portfolio_db_delete_test_portfolios(void) {
+    int deleted = 0;
+    pthread_mutex_lock(&db_mutex);
     
-    int user_idx = user_id - 1;
-
-    if (!user_portfolios[user_idx]) {
-        user_portfolios[user_idx] = malloc(sizeof(portfolio_t));
-        if (!user_portfolios[user_idx]) return NULL;
-
-        user_portfolios[user_idx]->user_id = user_id;
-        user_portfolios[user_idx]->holding_count = 0;
-        user_portfolios[user_idx]->capacity = 10; // Initial capacity
-        user_portfolios[user_idx]->holdings = malloc(sizeof(holding_t) * 10);
-        
-        if (!user_portfolios[user_idx]->holdings) {
-            free(user_portfolios[user_idx]);
-            user_portfolios[user_idx] = NULL;
-            return NULL;
+    for (int i = 0; i < HASH_BUCKETS; i++) {
+        portfolio_node_t** pp = &portfolio_hash[i];
+        while (*pp) {
+            portfolio_t* portfolio = (*pp)->portfolio;
+            if (portfolio && 
+                portfolio->user_id >= TEST_ACCOUNT_ID_START && 
+                portfolio->user_id <= TEST_ACCOUNT_ID_END) {
+                // Remove this node
+                portfolio_node_t* to_delete = *pp;
+                *pp = (*pp)->next;
+                free(portfolio->holdings);
+                free(portfolio);
+                free(to_delete);
+                deleted++;
+            } else {
+                pp = &(*pp)->next;
+            }
         }
     }
-    return user_portfolios[user_idx];
+    
+    portfolio_db_persist();
+    pthread_mutex_unlock(&db_mutex);
+    return deleted;
+}
+
+// --- Internal Helper Functions ---
+
+// Find a portfolio for a user (does not create)
+// NOTE: Must be called with mutex held
+static portfolio_t* find_portfolio(uint32_t user_id) {
+    uint32_t bucket = hash_user_id(user_id);
+    portfolio_node_t* node = portfolio_hash[bucket];
+    
+    while (node) {
+        if (node->portfolio && node->portfolio->user_id == user_id) {
+            return node->portfolio;
+        }
+        node = node->next;
+    }
+    return NULL;
+}
+
+// Find a portfolio for a user; if it doesn't exist, create it.
+// NOTE: Must be called with mutex held
+static portfolio_t* find_or_create_portfolio(uint32_t user_id) {
+    if (user_id == 0) return NULL;
+    
+    // First try to find existing
+    portfolio_t* existing = find_portfolio(user_id);
+    if (existing) return existing;
+    
+    // Create new portfolio
+    portfolio_t* portfolio = malloc(sizeof(portfolio_t));
+    if (!portfolio) return NULL;
+    
+    portfolio->user_id = user_id;
+    portfolio->holding_count = 0;
+    portfolio->capacity = 10;
+    portfolio->holdings = malloc(sizeof(holding_t) * portfolio->capacity);
+    
+    if (!portfolio->holdings) {
+        free(portfolio);
+        return NULL;
+    }
+    
+    // Create node and insert into hash table
+    portfolio_node_t* node = malloc(sizeof(portfolio_node_t));
+    if (!node) {
+        free(portfolio->holdings);
+        free(portfolio);
+        return NULL;
+    }
+    
+    node->portfolio = portfolio;
+    uint32_t bucket = hash_user_id(user_id);
+    node->next = portfolio_hash[bucket];
+    portfolio_hash[bucket] = node;
+    
+    return portfolio;
 }

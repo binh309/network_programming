@@ -411,6 +411,48 @@ static bool cmd_shutdown(admin_result_t* result) {
     return true;
 }
 
+static bool cmd_setup_test(admin_result_t* result) {
+    char* msg = result->message;
+    int remaining = sizeof(result->message);
+    int written;
+    
+    written = snprintf(msg, remaining,
+        "SETTING UP LOAD TEST ENVIRONMENT\n"
+        "=========================================\n");
+    msg += written;
+    remaining -= written;
+    
+    // Delete existing test portfolios first
+    int deleted_portfolios = portfolio_db_delete_test_portfolios();
+    written = snprintf(msg, remaining,
+        "Deleted %d test portfolios\n", deleted_portfolios);
+    msg += written;
+    remaining -= written;
+    
+    // Setup test accounts (deletes old, creates new)
+    int created = account_db_setup_test_accounts();
+    
+    written = snprintf(msg, remaining,
+        "Created %d test accounts (test1-test%d)\n"
+        "  User IDs: %d-%d\n"
+        "  Password: same as username\n"
+        "  Balance: $100,000,000 each\n",
+        created, created,
+        TEST_ACCOUNT_ID_START, TEST_ACCOUNT_ID_START + created - 1);
+    msg += written;
+    remaining -= written;
+    
+    // Reset stock volumes to 1 million each
+    stock_db_reset_volumes(1000000);
+    written = snprintf(msg, remaining,
+        "Reset all stock volumes to 1,000,000\n"
+        "-----------------------------------------\n"
+        "Load test environment ready!");
+    
+    result->success = (created > 0);
+    return true;
+}
+
 bool admin_execute(const char* command, admin_result_t* result) {
     memset(result, 0, sizeof(admin_result_t));
     
@@ -455,6 +497,8 @@ bool admin_execute(const char* command, admin_result_t* result) {
         return cmd_set_price(args ? args : "", result);
     } else if (strcmp(cmd, "reset_data") == 0) {
         return cmd_reset_data(args, result);
+    } else if (strcmp(cmd, "setup_test") == 0) {
+        return cmd_setup_test(result);
     } else if (strcmp(cmd, "shutdown") == 0) {
         return cmd_shutdown(result);
     } else {
@@ -479,6 +523,9 @@ void admin_get_help(char* buffer, size_t size) {
         "STOCK MANAGEMENT:\n"
         "  set_price <stock_id> <bid> <ask>\n"
         "  list_stocks\n"
+        "\n"
+        "LOAD TESTING:\n"
+        "  setup_test           Create 100 test accounts ($1M each)\n"
         "\n"
         "SERVER CONTROL:\n"
         "  status              Show detailed server stats\n"

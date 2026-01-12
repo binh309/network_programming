@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include "../model/portfolio.h"
 
+// Increase max users to support test accounts
+#define PORTFOLIO_MAX_USERS 10000
+
 // Function declarations
 bool portfolio_db_init();
 void portfolio_db_destroy();
@@ -15,5 +18,8 @@ bool portfolio_db_add_holding(uint32_t user_id, uint16_t stock_id, uint32_t quan
 bool portfolio_db_remove_holding(uint32_t user_id, uint16_t stock_id, uint32_t quantity);
 bool portfolio_db_persist();
 bool portfolio_db_load();
+
+// Test account cleanup
+int portfolio_db_delete_test_portfolios(void);
 
 #endif
