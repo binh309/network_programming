@@ -98,6 +98,13 @@ typedef struct {
     double rolling_latency[ROLLING_WINDOW_SIZE];
     int rolling_index;
     
+    // Rejection reason tracking
+    uint64_t reject_insufficient_balance;
+    uint64_t reject_risk_limit;
+    uint64_t reject_insufficient_stock;
+    uint64_t reject_insufficient_holdings;
+    uint64_t reject_other;
+    
     // Thread safety
     pthread_mutex_t lock;
 } server_stats_t;
@@ -140,7 +147,16 @@ void stats_record_order(bool is_buy, double latency_ms, uint16_t stock_id, uint3
  * Record a failed order (still counts for throughput)
  * @param latency_ms Order processing latency in milliseconds
  */
-void stats_record_failed_order(double latency_ms);
+// Rejection reason enum
+typedef enum {
+    REJECT_INSUFFICIENT_BALANCE,
+    REJECT_RISK_LIMIT,
+    REJECT_INSUFFICIENT_STOCK,
+    REJECT_INSUFFICIENT_HOLDINGS,
+    REJECT_OTHER
+} reject_reason_t;
+
+void stats_record_failed_order(double latency_ms, reject_reason_t reason);
 
 /**
  * Take a sample for graphing (called every GRAPH_SAMPLE_MS)

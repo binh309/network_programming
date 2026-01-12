@@ -14,8 +14,9 @@
 #include "../ui/tui.h"
 #include "../ui/stats.h"
 
-#define MAX_SHARES_PER_STOCK 500
-#define MAX_TOTAL_SHARES 5000
+// Risk Limits - increased for load testing (originally 500/5000)
+#define MAX_SHARES_PER_STOCK 100000
+#define MAX_TOTAL_SHARES 1000000
 
 // Handle buy stock request
 void handle_buy_stock_request(int client_socket, const packet_t* request, connection_t* connection) {
@@ -113,7 +114,7 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
         clock_gettime(CLOCK_MONOTONIC, &end_time);
         double latency_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
                             (end_time.tv_nsec - start_time.tv_nsec) / 1e6;
-        stats_record_failed_order(latency_ms);
+        stats_record_failed_order(latency_ms, REJECT_INSUFFICIENT_BALANCE);
         tui_log(LOG_WARNING, "BUY REJECTED: Insufficient balance for %s", connection->username);
         send_error(client_socket, request->header.request_id, "Insufficient balance.");
         stock_db_free(stock);
@@ -135,7 +136,7 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
         clock_gettime(CLOCK_MONOTONIC, &end_time);
         double latency_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
                             (end_time.tv_nsec - start_time.tv_nsec) / 1e6;
-        stats_record_failed_order(latency_ms);
+        stats_record_failed_order(latency_ms, REJECT_RISK_LIMIT);
         tui_log(LOG_WARNING, "BUY REJECTED: Risk limit for %s", connection->username);
         send_error(client_socket, request->header.request_id, "Risk limit: Exceeds max shares per stock.");
         stock_db_free(stock);
@@ -154,7 +155,7 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
         clock_gettime(CLOCK_MONOTONIC, &end_time);
         double latency_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
                             (end_time.tv_nsec - start_time.tv_nsec) / 1e6;
-        stats_record_failed_order(latency_ms);
+        stats_record_failed_order(latency_ms, REJECT_RISK_LIMIT);
         tui_log(LOG_WARNING, "BUY REJECTED: Risk limit for %s", connection->username);
         send_error(client_socket, request->header.request_id, "Risk limit: Exceeds max total shares.");
         stock_db_free(stock);

@@ -449,7 +449,47 @@ static bool cmd_setup_test(admin_result_t* result) {
         "-----------------------------------------\n"
         "Load test environment ready!");
     
+    // Reset rejection counters
+    g_stats.reject_insufficient_balance = 0;
+    g_stats.reject_risk_limit = 0;
+    g_stats.reject_insufficient_stock = 0;
+    g_stats.reject_insufficient_holdings = 0;
+    g_stats.reject_other = 0;
+    
     result->success = (created > 0);
+    return true;
+}
+
+static bool cmd_rejections(admin_result_t* result) {
+    uint64_t total = g_stats.reject_insufficient_balance + 
+                     g_stats.reject_risk_limit + 
+                     g_stats.reject_insufficient_stock + 
+                     g_stats.reject_insufficient_holdings + 
+                     g_stats.reject_other;
+    
+    snprintf(result->message, sizeof(result->message),
+        "REJECTION BREAKDOWN\n"
+        "=========================================\n"
+        "Insufficient Balance:  %lu (%.1f%%)\n"
+        "Risk Limit Exceeded:   %lu (%.1f%%)\n"
+        "Insufficient Stock:    %lu (%.1f%%)\n"
+        "Insufficient Holdings: %lu (%.1f%%)\n"
+        "Other:                 %lu (%.1f%%)\n"
+        "-----------------------------------------\n"
+        "Total Rejections:      %lu\n",
+        g_stats.reject_insufficient_balance, 
+        total > 0 ? 100.0 * g_stats.reject_insufficient_balance / total : 0.0,
+        g_stats.reject_risk_limit,
+        total > 0 ? 100.0 * g_stats.reject_risk_limit / total : 0.0,
+        g_stats.reject_insufficient_stock,
+        total > 0 ? 100.0 * g_stats.reject_insufficient_stock / total : 0.0,
+        g_stats.reject_insufficient_holdings,
+        total > 0 ? 100.0 * g_stats.reject_insufficient_holdings / total : 0.0,
+        g_stats.reject_other,
+        total > 0 ? 100.0 * g_stats.reject_other / total : 0.0,
+        total);
+    
+    result->success = true;
     return true;
 }
 
@@ -499,6 +539,8 @@ bool admin_execute(const char* command, admin_result_t* result) {
         return cmd_reset_data(args, result);
     } else if (strcmp(cmd, "setup_test") == 0) {
         return cmd_setup_test(result);
+    } else if (strcmp(cmd, "rejections") == 0) {
+        return cmd_rejections(result);
     } else if (strcmp(cmd, "shutdown") == 0) {
         return cmd_shutdown(result);
     } else {
@@ -525,7 +567,8 @@ void admin_get_help(char* buffer, size_t size) {
         "  list_stocks\n"
         "\n"
         "LOAD TESTING:\n"
-        "  setup_test           Create 100 test accounts ($1M each)\n"
+        "  setup_test           Create 100 test accounts ($100M each)\n"
+        "  rejections           Show rejection reason breakdown\n"
         "\n"
         "SERVER CONTROL:\n"
         "  status              Show detailed server stats\n"

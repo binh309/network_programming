@@ -127,7 +127,7 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, conne
         clock_gettime(CLOCK_MONOTONIC, &end_time);
         double latency_ms = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
                             (end_time.tv_nsec - start_time.tv_nsec) / 1e6;
-        stats_record_failed_order(latency_ms);
+        stats_record_failed_order(latency_ms, REJECT_INSUFFICIENT_HOLDINGS);
         tui_log(LOG_WARNING, "SELL REJECTED: Insufficient holdings for %s", connection->username);
         send_error(client_socket, request->header.request_id, "Insufficient holdings to sell.");
         stock_db_free(stock);

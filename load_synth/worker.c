@@ -232,6 +232,9 @@ void* worker_thread(void* arg) {
     snprintf(w->password, sizeof(w->password), "test%d", w->worker_id + 1);
     w->rand_state = w->worker_id + time(NULL);
     
+    // Initialize holdings to zero
+    memset(w->holdings, 0, sizeof(w->holdings));
+    
     // Connect
     if (worker_connect(w) < 0) {
         stats_record_connect(w->stats, false);
@@ -277,16 +280,32 @@ void* worker_thread(void* arg) {
         // Select random stock and quantity
         int stock_idx = rand_r(&w->rand_state) % g_num_stocks;
         stock_info_t* stock = &g_stocks[stock_idx];
-        uint32_t quantity = 1 + (rand_r(&w->rand_state) % 10);  // 1-10 shares (smaller for test accounts)
+        uint32_t quantity = 1 + (rand_r(&w->rand_state) % 10);  // 1-10 shares
         
         uint64_t latency_us = 0;
         int result;
         
-        // 70% buy, 30% sell
-        if ((rand_r(&w->rand_state) % 100) < 70) {
-            result = worker_buy(w, stock->stock_id, quantity, stock->ask, &latency_us);
-        } else {
+        // Decide buy or sell based on holdings
+        // If we have holdings of this stock, 50% chance to sell
+        // Otherwise always buy
+        bool do_sell = false;
+        if (w->holdings[stock_idx] > 0) {
+            do_sell = (rand_r(&w->rand_state) % 100) < 50;
+            if (do_sell && quantity > w->holdings[stock_idx]) {
+                quantity = w->holdings[stock_idx];  // Can only sell what we have
+            }
+        }
+        
+        if (do_sell) {
             result = worker_sell(w, stock->stock_id, quantity, stock->bid, &latency_us);
+            if (result == 0) {
+                w->holdings[stock_idx] -= quantity;  // Track sold
+            }
+        } else {
+            result = worker_buy(w, stock->stock_id, quantity, stock->ask, &latency_us);
+            if (result == 0) {
+                w->holdings[stock_idx] += quantity;  // Track bought
+            }
         }
         
         if (result == -2) {

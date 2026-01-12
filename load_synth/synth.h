@@ -92,6 +92,9 @@ typedef struct {
     // Random state
     unsigned int rand_state;
     
+    // Local holdings tracking (to avoid selling what we don't have)
+    uint32_t holdings[MAX_STOCKS];  // holdings[stock_idx] = quantity owned
+    
     // Reference to config and stats
     synth_config_t* config;
     synth_stats_t* stats;

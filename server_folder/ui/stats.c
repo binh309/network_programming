@@ -92,9 +92,28 @@ void stats_record_order(bool is_buy, double latency_ms, uint16_t stock_id, uint3
     pthread_mutex_unlock(&g_stats.lock);
 }
 
-void stats_record_failed_order(double latency_ms) {
+void stats_record_failed_order(double latency_ms, reject_reason_t reason) {
     pthread_mutex_lock(&g_stats.lock);
     g_stats.failed_orders++;
+    
+    // Track rejection reason
+    switch (reason) {
+        case REJECT_INSUFFICIENT_BALANCE:
+            g_stats.reject_insufficient_balance++;
+            break;
+        case REJECT_RISK_LIMIT:
+            g_stats.reject_risk_limit++;
+            break;
+        case REJECT_INSUFFICIENT_STOCK:
+            g_stats.reject_insufficient_stock++;
+            break;
+        case REJECT_INSUFFICIENT_HOLDINGS:
+            g_stats.reject_insufficient_holdings++;
+            break;
+        default:
+            g_stats.reject_other++;
+            break;
+    }
     
     // Failed orders still count for throughput (server processed the request)
     g_stats.interval_orders++;
