@@ -7,7 +7,8 @@
 #include "../model/portfolio.h"
 #include "../data/portfolio_db.h"
 
-#define MAX_USERS 100
+// Increased to support test accounts (IDs 9001-9100)
+#define MAX_USERS 10000
 
 static portfolio_t* portfolios[MAX_USERS];
 static pthread_mutex_t portfolio_lock = PTHREAD_MUTEX_INITIALIZER;

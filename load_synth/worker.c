@@ -172,12 +172,14 @@ static int worker_buy(worker_t* w, uint16_t stock_id, uint32_t quantity, double 
     if (resp.header.type != SMSG_BUY_STOCK_SUCCESS) {
         // Only print first few failures to avoid spam
         static int fail_count = 0;
-        if (fail_count++ < 5) {
-            fprintf(stderr, "[W%d] BUY FAIL: type=0x%02x body=%s\n", w->worker_id, resp.header.type, resp.body);
+        if (fail_count++ < 20) {
+            fprintf(stderr, "[W%d] BUY FAIL: type=0x%02x (expected 0x%02x) body=%s\n", 
+                    w->worker_id, resp.header.type, SMSG_BUY_STOCK_SUCCESS, resp.body);
         }
+        return -1;
     }
     
-    return (resp.header.type == SMSG_BUY_STOCK_SUCCESS) ? 0 : -1;
+    return 0;
 }
 
 // Execute a sell order
@@ -205,7 +207,16 @@ static int worker_sell(worker_t* w, uint16_t stock_id, uint32_t quantity, double
     *latency_us = (end.tv_sec - start.tv_sec) * 1000000 + 
                   (end.tv_nsec - start.tv_nsec) / 1000;
     
-    return (resp.header.type == SMSG_SELL_STOCK_SUCCESS) ? 0 : -1;
+    if (resp.header.type != SMSG_SELL_STOCK_SUCCESS) {
+        static int sell_fail_count = 0;
+        if (sell_fail_count++ < 20) {
+            fprintf(stderr, "[W%d] SELL FAIL: type=0x%02x (expected 0x%02x) body=%s\n", 
+                    w->worker_id, resp.header.type, SMSG_SELL_STOCK_SUCCESS, resp.body);
+        }
+        return -1;
+    }
+    
+    return 0;
 }
 
 // Disconnect
