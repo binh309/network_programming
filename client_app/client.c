@@ -5,6 +5,8 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <errno.h>
+#include <sys/socket.h>
 
 #include "protocol.h"
 #include "packet.h"
@@ -15,9 +17,11 @@
 // --- Globals ---
 static int g_socket_fd = -1;
 static bool g_is_logged_in = false;
-static bool g_is_connected = true;  // Track connection state
+static bool g_is_connected = false;  // Track connection state
 static char g_username[32] = {0};
 static uint16_t g_request_id = 0;
+static char g_server_ip[64] = SERVER_HOST;
+static int g_server_port = SERVER_PORT;
 
 // --- Forward Declarations ---
 void cmd_register(char* args);
@@ -30,6 +34,8 @@ void cmd_sell_stock(char* args);
 void cmd_see_balance();
 void cmd_status();
 void show_menu();
+int attempt_reconnect(void);
+void handle_disconnect(void);
 
 // --- Main Functions ---
 
@@ -60,10 +66,10 @@ void handle_response(const packet_t* response) {
             break;
 
         case SMSG_VIEW_STOCKS_DATA:
-            printf("\n========== AVAILABLE STOCKS ==========\n");
-            printf("%-6s %-10s %-20s %-12s %-10s %-12s %-10s %-10s\n", 
-                   "ID", "SYMBOL", "NAME", "BID (QTY)", "ASK (QTY)", "LAST (QTY)", "AGE(s)", "SPREAD");
-            printf("------------------------------------------------------------------------------------------------\n");
+            printf("\n===================================== AVAILABLE STOCKS =====================================\n");
+            printf("%-4s %-8s %-18s %14s %14s %14s %6s %8s\n", 
+                   "ID", "SYMBOL", "NAME", "BID (QTY)", "ASK (QTY)", "LAST (QTY)", "AGE", "SPREAD");
+            printf("--------------------------------------------------------------------------------------------\n");
             char* stock_str = strtok(body_copy, ";");
             while (stock_str != NULL) {
                 uint16_t id;
@@ -83,16 +89,22 @@ void handle_response(const packet_t* response) {
                     // Calculate spread
                     double spread = ask - bid;
                     
-                    printf("%-6u %-10s %-20s %.2f(%5u) %.2f(%5u) %.2f(%5u) %6ld  %6.2f\n", 
-                           id, symbol, name, bid, bid_qty, ask, ask_qty, last, last_qty, data_age, spread);
+                    // Format bid/ask/last with qty in parentheses
+                    char bid_str[24], ask_str[24], last_str[24];
+                    snprintf(bid_str, sizeof(bid_str), "%.2f(%u)", bid, bid_qty);
+                    snprintf(ask_str, sizeof(ask_str), "%.2f(%u)", ask, ask_qty);
+                    snprintf(last_str, sizeof(last_str), "%.2f(%u)", last, last_qty);
+                    
+                    printf("%-4u %-8s %-18s %14s %14s %14s %4lds %8.2f\n", 
+                           id, symbol, name, bid_str, ask_str, last_str, data_age, spread);
                 }
                 stock_str = strtok(NULL, ";");
             }
-            printf("------------------------------------------------------------------------------------------------\n\n");
+            printf("============================================================================================\n\n");
             break;
 
         case SMSG_VIEW_MY_STOCKS_DATA:
-             printf("\n========== YOUR PORTFOLIO ==========\n");
+            printf("\n========== YOUR PORTFOLIO ==========\n");
             printf("%-10s %-10s %-15s %-15s %-10s\n", "SYMBOL", "QTY", "AVG COST", "CURRENT PRICE", "P&L");
             printf("----------------------------------------------------------------\n");
             char* pos_str = strtok(body_copy, ";\n");
@@ -121,15 +133,12 @@ void handle_response(const packet_t* response) {
 }
 
 int main(int argc, char* argv[]) {
-    const char* server_ip = SERVER_HOST;
-    int server_port = SERVER_PORT;
-
     // Allow overriding server IP and Port via command line
     if (argc > 1) {
-        server_ip = argv[1];
+        strncpy(g_server_ip, argv[1], sizeof(g_server_ip) - 1);
     }
     if (argc > 2) {
-        server_port = atoi(argv[2]);
+        g_server_port = atoi(argv[2]);
     }
 
     g_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -140,25 +149,28 @@ int main(int argc, char* argv[]) {
 
     struct sockaddr_in server_addr = {
         .sin_family = AF_INET,
-        .sin_port = htons(server_port),
-        .sin_addr.s_addr = inet_addr(server_ip)
+        .sin_port = htons(g_server_port),
+        .sin_addr.s_addr = inet_addr(g_server_ip)
     };
 
     if (connect(g_socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        fprintf(stderr, "[ERROR] Failed to connect to %s:%d. Check IP and Firewall.\n", server_ip, server_port);
+        fprintf(stderr, "[ERROR] Failed to connect to %s:%d. Check IP and Firewall.\n", g_server_ip, g_server_port);
         perror("connect");
         return 1;
     }
 
-    printf("[CLIENT] Connected to server at %s:%d. Welcome to the trading system!\n", server_ip, server_port);
+    g_is_connected = true;
+    printf("[CLIENT] Connected to server at %s:%d. Welcome to the trading system!\n", g_server_ip, g_server_port);
     show_menu();
 
     char input[256];
     while (1) {
-        // Check if still connected
+        // Check if still connected - attempt reconnect if not
         if (!g_is_connected) {
-            printf("\n[CLIENT] Connection lost. Exiting...\n");
-            break;
+            handle_disconnect();
+            if (!attempt_reconnect()) {
+                printf("\n[CLIENT] Failed to reconnect. Type 'quit' to exit or any command to retry.\n");
+            }
         }
         
         printf(">>> ");
@@ -182,6 +194,18 @@ int main(int argc, char* argv[]) {
         else if (strcmp(cmd, "sell") == 0) cmd_sell_stock(args);
         else if (strcmp(cmd, "balance") == 0) cmd_see_balance();
         else if (strcmp(cmd, "status") == 0) cmd_status();
+        else if (strcmp(cmd, "reconnect") == 0) {
+            if (g_is_connected) {
+                printf("[CLIENT] Already connected.\n");
+            } else {
+                handle_disconnect();
+                if (attempt_reconnect()) {
+                    printf("[CLIENT] Ready to use. Please login.\n");
+                } else {
+                    printf("[CLIENT] Reconnection failed. Server may be down.\n");
+                }
+            }
+        }
         else if (strcmp(cmd, "help") == 0) show_menu();
         else if (strcmp(cmd, "quit") == 0 || strcmp(cmd, "exit") == 0) {
             printf("[CLIENT] Goodbye!\n");
@@ -373,6 +397,25 @@ void cmd_see_balance() {
 }
 
 void cmd_status(void) {
+    // Active connection check: try to peek at socket
+    if (g_is_connected && g_socket_fd >= 0) {
+        char buf;
+        int result = recv(g_socket_fd, &buf, 1, MSG_PEEK | MSG_DONTWAIT);
+        if (result == 0) {
+            // Connection closed by server
+            g_is_connected = false;
+            g_is_logged_in = false;
+            printf("\n[WARNING] Server has closed the connection.\n");
+        }
+        // result < 0 with EAGAIN/EWOULDBLOCK is OK (no data, still connected)
+        // result < 0 with other errors might indicate problems
+        else if (result < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            g_is_connected = false;
+            g_is_logged_in = false;
+            printf("\n[WARNING] Connection error detected.\n");
+        }
+    }
+    
     printf("\n========== CLIENT STATUS ==========\n");
     printf("  Connected to server: %s\n", g_is_connected ? "YES" : "NO (DISCONNECTED)");
     printf("  Logged in:           %s\n", g_is_logged_in ? "YES" : "NO");
@@ -393,7 +436,52 @@ void show_menu(void) {
     printf("  sell <id> <qty> <price> <type> - Sell stock (type: MARKET or LIMIT)\n");
     printf("  balance                        - Check your account balance\n");
     printf("  status                         - Show your current connection status\n");
+    printf("  reconnect                      - Manually reconnect to server\n");
     printf("  help                           - Show this menu\n");
     printf("  quit                           - Exit the client\n");
     printf("========================================\n\n");
+}
+
+// --- Connection Management ---
+
+void handle_disconnect(void) {
+    // Clear login state on disconnect
+    if (g_is_logged_in) {
+        printf("\n[WARNING] Connection lost - you have been logged out.\n");
+        g_is_logged_in = false;
+        memset(g_username, 0, sizeof(g_username));
+    }
+    
+    // Close old socket
+    if (g_socket_fd >= 0) {
+        close(g_socket_fd);
+        g_socket_fd = -1;
+    }
+}
+
+int attempt_reconnect(void) {
+    printf("[CLIENT] Attempting to reconnect to %s:%d...\n", g_server_ip, g_server_port);
+    
+    // Create new socket
+    g_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (g_socket_fd < 0) {
+        perror("socket");
+        return 0;
+    }
+    
+    struct sockaddr_in server_addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(g_server_port),
+        .sin_addr.s_addr = inet_addr(g_server_ip)
+    };
+    
+    if (connect(g_socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        close(g_socket_fd);
+        g_socket_fd = -1;
+        return 0;
+    }
+    
+    g_is_connected = true;
+    printf("[CLIENT] Reconnected successfully! Please login again.\n");
+    return 1;
 }
