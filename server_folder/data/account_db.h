@@ -24,10 +24,10 @@ double account_db_get_balance(uint32_t user_id);
 bool account_db_update_balance(uint32_t user_id, double new_balance);
 bool account_db_add(const char* username, const char* password);
 
-// Test account management (IDs 9001-9100 reserved for load testing)
-#define TEST_ACCOUNT_ID_START 9001
-#define TEST_ACCOUNT_ID_END   9100
-#define TEST_ACCOUNT_COUNT    100
+// Test account management (IDs 9000-9999 reserved for load testing)
+#define TEST_ACCOUNT_ID_START 9000
+#define TEST_ACCOUNT_ID_END   9999
+#define TEST_ACCOUNT_COUNT    1000
 #define TEST_ACCOUNT_BALANCE  100000000.0  // $100 million
 
 // Delete all test accounts (ID range 9001-9100)

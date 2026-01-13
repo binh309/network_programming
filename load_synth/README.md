@@ -84,8 +84,8 @@ Before running the load synthesizer, you must set up test accounts on the server
    ```
    setup_test
    ```
-   This creates 100 test accounts (`test1` through `test100`) with:
-   - User IDs: 9001-9100
+   This creates 1000 test accounts (`test1` through `test1000`) with:
+   - User IDs: 9000-9999
    - Initial balance: $100,000,000 each
    - Stock volumes reset to 1,000,000
 

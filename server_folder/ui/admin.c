@@ -567,7 +567,7 @@ void admin_get_help(char* buffer, size_t size) {
         "  list_stocks\n"
         "\n"
         "LOAD TESTING:\n"
-        "  setup_test           Create 100 test accounts ($100M each)\n"
+        "  setup_test           Create 1000 test accounts ($100M each)\n"
         "  rejections           Show rejection reason breakdown\n"
         "\n"
         "SERVER CONTROL:\n"

@@ -18,11 +18,11 @@
 #define DEFAULT_RATE 0  // 0 = as fast as possible
 
 // Test account configuration (must match server)
-#define TEST_ACCOUNT_ID_START 9001
-#define TEST_ACCOUNT_COUNT 100
+#define TEST_ACCOUNT_ID_START 9000
+#define TEST_ACCOUNT_COUNT 1000
 
 // Maximum values
-#define MAX_CLIENTS 100
+#define MAX_CLIENTS 1000
 #define MAX_STOCKS 20
 
 // Phases
