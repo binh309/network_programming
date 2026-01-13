@@ -7,7 +7,7 @@
 #include "account_db.h"
 #include "../model/error.h"
 
-#define MAX_ACCOUNTS 1000  // Increased to support test accounts (100 regular + 100 test)
+#define MAX_ACCOUNTS 2000  // Support 1000 test accounts + 1000 regular users
 
 // In-memory database
 static account_t accounts[MAX_ACCOUNTS];
@@ -148,7 +148,24 @@ bool account_db_add(const char* username, const char* password) {
     }
 
     account_t* new_acc = &accounts[num_accounts];
-    new_acc->user_id = num_accounts > 0 ? accounts[num_accounts - 1].user_id + 1 : 1;
+    
+    // Find next available regular user ID (below TEST_ACCOUNT_ID_START)
+    // Don't use last account's ID + 1 because test accounts have IDs 9000+
+    uint32_t max_regular_id = 0;
+    for (int i = 0; i < num_accounts; i++) {
+        if (accounts[i].user_id < TEST_ACCOUNT_ID_START && accounts[i].user_id > max_regular_id) {
+            max_regular_id = accounts[i].user_id;
+        }
+    }
+    new_acc->user_id = max_regular_id + 1;
+    
+    // Safety check: don't overlap with test account range
+    if (new_acc->user_id >= TEST_ACCOUNT_ID_START) {
+        fprintf(stderr, "[DB] Cannot add new user, regular user ID range exhausted.\n");
+        pthread_mutex_unlock(&db_mutex);
+        return false;
+    }
+    
     snprintf(new_acc->username, sizeof(new_acc->username), "%s", username);
     
     char hashed_pass[32];
