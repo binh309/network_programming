@@ -4,7 +4,11 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <sys/select.h>
 #include "packet.h"
+
+// Read timeout in seconds (0 = no timeout, blocking)
+#define READ_TIMEOUT_SEC 30
 
 // Helper function to send a precise number of bytes
 static int send_all(int sockfd, const void* buf, size_t len) {
@@ -30,10 +34,29 @@ static int send_all(int sockfd, const void* buf, size_t len) {
     return 0;
 }
 
-// Helper function to receive a precise number of bytes
+// Helper function to receive a precise number of bytes with timeout
 static int recv_all(int sockfd, void* buf, size_t len) {
     size_t total_recv = 0;
     while (total_recv < len) {
+        // Use select() to implement timeout
+        fd_set readfds;
+        struct timeval tv;
+        FD_ZERO(&readfds);
+        FD_SET(sockfd, &readfds);
+        tv.tv_sec = READ_TIMEOUT_SEC;
+        tv.tv_usec = 0;
+        
+        int select_result = select(sockfd + 1, &readfds, NULL, NULL, &tv);
+        if (select_result < 0) {
+            perror("select failed");
+            return -1;
+        }
+        if (select_result == 0) {
+            fprintf(stderr, "\n[ERROR] Server connection timed out (no response for %d seconds)\n", READ_TIMEOUT_SEC);
+            fprintf(stderr, "[ERROR] The server may have closed the connection or crashed.\n");
+            return -1;
+        }
+        
         ssize_t received = read(sockfd, (char*)buf + total_recv, len - total_recv);
         if (received < 0) {
              if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -45,7 +68,8 @@ static int recv_all(int sockfd, void* buf, size_t len) {
             return -1;
         }
         if (received == 0) {
-            fprintf(stderr, "Connection closed by peer during receive.\n");
+            fprintf(stderr, "\n[ERROR] Server closed the connection.\n");
+            fprintf(stderr, "[ERROR] Please restart the client and reconnect.\n");
             return -1; 
         }
         total_recv += received;

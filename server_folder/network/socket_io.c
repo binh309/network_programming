@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>  // For TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT
 
 /**
  * @brief Set a file descriptor to non-blocking mode.
@@ -76,6 +77,50 @@ int socket_io_create_server(int port) {
 }
 
 /**
+ * @brief Enable TCP Keep-Alive on a socket
+ * 
+ * Configures the socket to detect dead connections:
+ * - Start probing after 10 seconds of inactivity
+ * - Send probes every 5 seconds
+ * - Close connection after 3 failed probes
+ * 
+ * @param sockfd The socket to configure
+ * @return 0 on success, -1 on error
+ */
+int socket_io_enable_keepalive(int sockfd) {
+    int optval = 1;
+    
+    // Enable keep-alive
+    if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)) < 0) {
+        perror("setsockopt SO_KEEPALIVE");
+        return -1;
+    }
+    
+    // Start probing after 10 seconds of inactivity
+    optval = 10;
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &optval, sizeof(optval)) < 0) {
+        perror("setsockopt TCP_KEEPIDLE");
+        return -1;
+    }
+    
+    // Send probe every 5 seconds
+    optval = 5;
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &optval, sizeof(optval)) < 0) {
+        perror("setsockopt TCP_KEEPINTVL");
+        return -1;
+    }
+    
+    // Close after 3 failed probes (10 + 5*3 = 25 seconds max to detect dead connection)
+    optval = 3;
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &optval, sizeof(optval)) < 0) {
+        perror("setsockopt TCP_KEEPCNT");
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
  * @brief Accepts a new client connection.
  * 
  * @param listen_fd The listening socket.
@@ -92,6 +137,10 @@ int socket_io_accept_connection(int listen_fd, struct sockaddr_in* client_addr) 
         }
         return -1;
     }
+    
+    // Enable TCP Keep-Alive for connection monitoring
+    socket_io_enable_keepalive(client_fd);
+    
     return client_fd;
 }
 

@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <time.h>
 
-#define MAX_CONNECTIONS 100
+#define MAX_CONNECTIONS 2000
 #define BUFFER_SIZE 4096
 
 /**

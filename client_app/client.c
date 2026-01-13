@@ -15,6 +15,7 @@
 // --- Globals ---
 static int g_socket_fd = -1;
 static bool g_is_logged_in = false;
+static bool g_is_connected = true;  // Track connection state
 static char g_username[32] = {0};
 static uint16_t g_request_id = 0;
 
@@ -154,6 +155,12 @@ int main(int argc, char* argv[]) {
 
     char input[256];
     while (1) {
+        // Check if still connected
+        if (!g_is_connected) {
+            printf("\n[CLIENT] Connection lost. Exiting...\n");
+            break;
+        }
+        
         printf(">>> ");
         fflush(stdout);
         if (!fgets(input, sizeof(input), stdin)) break;
@@ -208,6 +215,8 @@ void cmd_register(char* args) {
     
     if (receive_packet(g_socket_fd, &response) == 0) {
         handle_response(&response);
+    } else {
+        g_is_connected = false;
     }
 }
 
@@ -239,6 +248,8 @@ void cmd_login(char* args) {
             g_username[sizeof(g_username) - 1] = '\0';
         }
         handle_response(&response);
+    } else {
+        g_is_connected = false;
     }
 }
 
@@ -253,6 +264,8 @@ void cmd_logout() {
 
     if (receive_packet(g_socket_fd, &response) == 0) {
         handle_response(&response);
+    } else {
+        g_is_connected = false;
     }
 }
 
@@ -267,6 +280,8 @@ void cmd_view_stocks() {
     send_packet(g_socket_fd, &request);
     if (receive_packet(g_socket_fd, &response) == 0) {
         handle_response(&response);
+    } else {
+        g_is_connected = false;
     }
 }
 
@@ -280,6 +295,8 @@ void cmd_my_stocks() {
     send_packet(g_socket_fd, &request);
     if (receive_packet(g_socket_fd, &response) == 0) {
         handle_response(&response);
+    } else {
+        g_is_connected = false;
     }
 }
 
@@ -306,6 +323,8 @@ void cmd_buy_stock(char* args) {
     send_packet(g_socket_fd, &request);
     if (receive_packet(g_socket_fd, &response) == 0) {
         handle_response(&response);
+    } else {
+        g_is_connected = false;
     }
 }
 
@@ -333,6 +352,8 @@ void cmd_sell_stock(char* args) {
 
     if (receive_packet(g_socket_fd, &response) == 0) {
         handle_response(&response);
+    } else {
+        g_is_connected = false;
     }
 }
 
@@ -346,12 +367,14 @@ void cmd_see_balance() {
     send_packet(g_socket_fd, &request);
     if (receive_packet(g_socket_fd, &response) == 0) {
         handle_response(&response);
+    } else {
+        g_is_connected = false;
     }
 }
 
 void cmd_status(void) {
     printf("\n========== CLIENT STATUS ==========\n");
-    printf("  Connected to server: %s\n", g_socket_fd != -1 ? "YES" : "NO");
+    printf("  Connected to server: %s\n", g_is_connected ? "YES" : "NO (DISCONNECTED)");
     printf("  Logged in:           %s\n", g_is_logged_in ? "YES" : "NO");
     if (g_is_logged_in) {
         printf("  Username:            %s\n", g_username);
