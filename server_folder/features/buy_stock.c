@@ -251,6 +251,19 @@ void handle_buy_stock_request(int client_socket, const packet_t* request, connec
     stats_record_order(true, latency_ms, stock_id, connection->user_id, trade_value);
     tui_log(LOG_SUCCESS, "BUY %u %s @ $%.2f by %s", quantity, stock->symbol, execution_price, connection->username);
 
+    // ========== PRICE IMPACT: Demand pushes price UP ==========
+    // Simulates supply/demand: buying reduces supply, increases ask price
+    // Impact: ~0.01% per 100 shares traded
+    double impact = 0.0001 * quantity;
+    if (impact > 0.05) impact = 0.05;  // Cap at 5% max impact per trade
+    double spread = stock->best_ask - stock->best_bid;
+    double new_ask = execution_price * (1.0 + impact);
+    double new_bid = new_ask - spread;
+    double new_last = execution_price;
+    stock_db_update_price(stock_id, new_bid, new_ask, new_last);
+    server_debug("[BUY] Price impact: ask %.2f -> %.2f (+%.2f%%)\n", 
+           execution_price, new_ask, impact * 100);
+
     // 5. Send response with ACTUAL execution details (not client-provided price)
     char success_msg[256];
     snprintf(success_msg, sizeof(success_msg), 

@@ -25,7 +25,8 @@ static void update_stock_price(stock_t* stock) {
     if (!stock) return;
 
     // Simulate a slight random walk for the last price
-    double volatility = 0.015; // e.g., 1.5% volatility
+    // 0.2% volatility is more realistic (1.5% was too high - would be 50%+ daily)
+    double volatility = 0.002;
     double change_percent = volatility * random_walk();
     double new_last_price = stock->last_price * (1.0 + change_percent);
 
