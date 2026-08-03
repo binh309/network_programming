@@ -87,6 +87,11 @@ void handle_sell_stock_request(int client_socket, const packet_t* request, conne
 
     stock_db_update_volume(stock_id, stock->volume - quantity); // This is debatable, but for v1 let's assume it goes back to market
 
+    if (!portfolio_db_persist()) {
+        // Handle error if persistence fails, for now just log
+        fprintf(stderr, "[SELL] Warning: Failed to persist portfolio for user %u\n", connection->user_id);
+    }
+
     // 6. Send response
     char success_msg[256];
     snprintf(success_msg, sizeof(success_msg), "Order Filled: Sold %u %s at $%.2f.", quantity, stock->symbol, exec_price);

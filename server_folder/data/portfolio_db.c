@@ -133,12 +133,8 @@ bool portfolio_db_add_holding(uint32_t user_id, uint16_t stock_id, uint32_t quan
         new_holding->stock_id = stock_id;
         new_holding->quantity = quantity;
         new_holding->average_purchase_price = price;
-        portfolio->holding_count++;
-    }
-
-    bool success = portfolio_db_persist();
     pthread_mutex_unlock(&db_mutex);
-    return success;
+    return true;
 }
 
 // Remove a holding from a user's portfolio
@@ -177,9 +173,8 @@ bool portfolio_db_remove_holding(uint32_t user_id, uint16_t stock_id, uint32_t q
         portfolio->holding_count--;
     }
 
-    bool success = portfolio_db_persist();
     pthread_mutex_unlock(&db_mutex);
-    return success;
+    return true;
 }
 
 // Load portfolios from disk

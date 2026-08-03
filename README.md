@@ -8,7 +8,7 @@ Welcome to the comprehensive documentation for the Stock Trading System. This sy
 
 ### Core Architecture
 
-#### [NETWORK_ARCHITECTURE.md](NETWORK_ARCHITECTURE.md) **START HERE**
+#### [NETWORK_ARCHITECTURE.md](docs/NETWORK_ARCHITECTURE.md) **START HERE**
 Foundational documentation covering:
 - **Protocol Design**: TCP/IP client-server model with atomic message sending
 - **Packet Structure**: 5-byte header + variable body format
@@ -27,7 +27,7 @@ Foundational documentation covering:
 
 ### Complex Features (Separate Documentation)
 
-#### [FEATURE_BUY_STOCK.md](FEATURE_BUY_STOCK.md)
+#### [FEATURE_BUY_STOCK.md](docs/FEATURE_BUY_STOCK.md)
 Complete documentation for stock purchase feature:
 - **Request/Response Specification**: Exact binary packet formats
 - **Execution Flow**: 10-step validation and processing pipeline
@@ -43,7 +43,7 @@ Complete documentation for stock purchase feature:
 
 ---
 
-#### [FEATURE_SELL_STOCK.md](FEATURE_SELL_STOCK.md)
+#### [FEATURE_SELL_STOCK.md](docs/FEATURE_SELL_STOCK.md)
 Complete documentation for stock liquidation feature:
 - **Request/Response Specification**: Exact binary formats
 - **Execution Flow**: 10-step validation pipeline
@@ -60,7 +60,7 @@ Complete documentation for stock liquidation feature:
 
 ---
 
-#### [FEATURE_SESSION_MANAGEMENT.md](FEATURE_SESSION_MANAGEMENT.md)
+#### [FEATURE_SESSION_MANAGEMENT.md](docs/FEATURE_SESSION_MANAGEMENT.md)
 Complete documentation for user authentication and session tracking:
 - **Session Lifecycle**: From connection to disconnection
 - **Session Data Structure**: Socket → user_id mapping
@@ -79,7 +79,7 @@ Complete documentation for user authentication and session tracking:
 
 ---
 
-#### [FEATURE_PORTFOLIO_MANAGEMENT.md](FEATURE_PORTFOLIO_MANAGEMENT.md)
+#### [FEATURE_PORTFOLIO_MANAGEMENT.md](docs/FEATURE_PORTFOLIO_MANAGEMENT.md)
 Complete documentation for stock holding tracking:
 - **Portfolio Data Structure**: Holdings array with cost basis
 - **Portfolio Manager API**: Get, add, remove operations
@@ -102,38 +102,38 @@ Complete documentation for stock holding tracking:
 ### By Task
 
 **"I want to understand the whole system"**
-1. Read [NETWORK_ARCHITECTURE.md](NETWORK_ARCHITECTURE.md)
+1. Read [NETWORK_ARCHITECTURE.md](docs/NETWORK_ARCHITECTURE.md)
 2. Skim each feature doc
 
 **"I want to fix the sell feature"**
-1. Read [FEATURE_SELL_STOCK.md](FEATURE_SELL_STOCK.md) "Known Issues"
-2. Read [FEATURE_PORTFOLIO_MANAGEMENT.md](FEATURE_PORTFOLIO_MANAGEMENT.md) "Critical Issue"
+1. Read [FEATURE_SELL_STOCK.md](docs/FEATURE_SELL_STOCK.md) "Known Issues"
+2. Read [FEATURE_PORTFOLIO_MANAGEMENT.md](docs/FEATURE_PORTFOLIO_MANAGEMENT.md) "Critical Issue"
 3. Implement portfolio_manager.c with persistent storage
 
 **"I want to add a new trading feature"**
-1. Read [NETWORK_ARCHITECTURE.md](NETWORK_ARCHITECTURE.md) sections:
+1. Read [NETWORK_ARCHITECTURE.md](docs/NETWORK_ARCHITECTURE.md) sections:
    - Message Types (add new type to protocol.h)
    - Communication Flow (pattern for handlers)
    - Error Handling (pattern for responses)
-2. Follow pattern from [FEATURE_BUY_STOCK.md](FEATURE_BUY_STOCK.md)
+2. Follow pattern from [FEATURE_BUY_STOCK.md](docs/FEATURE_BUY_STOCK.md)
 
 **"I want to improve security"**
-1. Read [NETWORK_ARCHITECTURE.md](NETWORK_ARCHITECTURE.md) "Security Considerations"
-2. Read [FEATURE_SESSION_MANAGEMENT.md](FEATURE_SESSION_MANAGEMENT.md) "Security Considerations"
+1. Read [NETWORK_ARCHITECTURE.md](docs/NETWORK_ARCHITECTURE.md) "Security Considerations"
+2. Read [FEATURE_SESSION_MANAGEMENT.md](docs/FEATURE_SESSION_MANAGEMENT.md) "Security Considerations"
 
 **"I want to understand concurrency"**
-1. [NETWORK_ARCHITECTURE.md](NETWORK_ARCHITECTURE.md) "Threading & Synchronization"
-2. [FEATURE_BUY_STOCK.md](FEATURE_BUY_STOCK.md) "Concurrency & Thread Safety"
+1. [NETWORK_ARCHITECTURE.md](docs/NETWORK_ARCHITECTURE.md) "Threading & Synchronization"
+2. [FEATURE_BUY_STOCK.md](docs/FEATURE_BUY_STOCK.md) "Concurrency & Thread Safety"
 
 ### By Component
 
 | Component | File | Status |
 |-----------|------|--------|
-| Network Protocol | [NETWORK_ARCHITECTURE.md](NETWORK_ARCHITECTURE.md) | ✅ Complete |
-| Buy Feature | [FEATURE_BUY_STOCK.md](FEATURE_BUY_STOCK.md) | ✅ Working |
-| Sell Feature | [FEATURE_SELL_STOCK.md](FEATURE_SELL_STOCK.md) | ❌ Broken (portfolio bug) |
-| Session Management | [FEATURE_SESSION_MANAGEMENT.md](FEATURE_SESSION_MANAGEMENT.md) | ✅ Working |
-| Portfolio Storage | [FEATURE_PORTFOLIO_MANAGEMENT.md](FEATURE_PORTFOLIO_MANAGEMENT.md) | ❌ Non-persistent |
+| Network Protocol | [NETWORK_ARCHITECTURE.md](docs/NETWORK_ARCHITECTURE.md) | ✅ Complete |
+| Buy Feature | [FEATURE_BUY_STOCK.md](docs/FEATURE_BUY_STOCK.md) | ✅ Working |
+| Sell Feature | [FEATURE_SELL_STOCK.md](docs/FEATURE_SELL_STOCK.md) | ❌ Broken (portfolio bug) |
+| Session Management | [FEATURE_SESSION_MANAGEMENT.md](docs/FEATURE_SESSION_MANAGEMENT.md) | ✅ Working |
+| Portfolio Storage | [FEATURE_PORTFOLIO_MANAGEMENT.md](docs/FEATURE_PORTFOLIO_MANAGEMENT.md) | ❌ Non-persistent |
 
 ---
 
@@ -385,7 +385,7 @@ Network Layer:
 ### For Developers
 
 **To understand the system:**
-1. Read [NETWORK_ARCHITECTURE.md](NETWORK_ARCHITECTURE.md) (30 min)
+1. Read [NETWORK_ARCHITECTURE.md](docs/NETWORK_ARCHITECTURE.md) (30 min)
 2. Read feature documentation (15 min each)
 3. Read source code: Look at buy_stock.c as reference (30 min)
 
@@ -410,19 +410,19 @@ Network Layer:
 ## 📞 Questions & Debugging
 
 ### "How does buy work end-to-end?"
-See [FEATURE_BUY_STOCK.md](FEATURE_BUY_STOCK.md) "Execution Flow" and "Data Flow Diagram"
+See [FEATURE_BUY_STOCK.md](docs/FEATURE_BUY_STOCK.md) "Execution Flow" and "Data Flow Diagram"
 
 ### "Why can't I sell after buying?"
-Portfolio not maintained between requests. See [FEATURE_PORTFOLIO_MANAGEMENT.md](FEATURE_PORTFOLIO_MANAGEMENT.md) "Critical Issue"
+Portfolio not maintained between requests. See [FEATURE_PORTFOLIO_MANAGEMENT.md](docs/FEATURE_PORTFOLIO_MANAGEMENT.md) "Critical Issue"
 
 ### "How is authentication handled?"
-See [FEATURE_SESSION_MANAGEMENT.md](FEATURE_SESSION_MANAGEMENT.md) "Authentication Flow"
+See [FEATURE_SESSION_MANAGEMENT.md](docs/FEATURE_SESSION_MANAGEMENT.md) "Authentication Flow"
 
 ### "What happens if two clients buy simultaneously?"
-Mutex protection ensures atomic operations. See [NETWORK_ARCHITECTURE.md](NETWORK_ARCHITECTURE.md) "Threading & Synchronization"
+Mutex protection ensures atomic operations. See [NETWORK_ARCHITECTURE.md](docs/NETWORK_ARCHITECTURE.md) "Threading & Synchronization"
 
 ### "What errors can buy return?"
-See [FEATURE_BUY_STOCK.md](FEATURE_BUY_STOCK.md) "Error Scenarios & Handling"
+See [FEATURE_BUY_STOCK.md](docs/FEATURE_BUY_STOCK.md) "Error Scenarios & Handling"
 
 ---
 

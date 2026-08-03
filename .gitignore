@@ -1,0 +1,21 @@
+# Object files
+*.o
+
+# Executables
+*.exe
+*.out
+client_app/client
+server_folder/server
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
